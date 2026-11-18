@@ -1,4 +1,5 @@
-import { USERS } from "./fixtures";
+import { MASTER_KEY, USERS } from "./fixtures";
+import { subscriberHash } from "../../src/lib/suppression";
 import { admin, as, rejects } from "./helpers";
 
 /** Runs every isolation/permission check. Returns a list of failed check names (empty = all good).
@@ -44,9 +45,12 @@ export async function runIsolationChecks(): Promise<string[]> {
   });
   await as(None, async (q) => {
     for (const t of [...tables, "tenants", "audit_log"]) ok(`${t}: non-member sees nothing`, (await count(q, `select count(*) n from ${t}`)) === 0);
+    ok("non-member cannot add_subscriber", await rejects(q, `select public.add_subscriber($1,'a@example.com','x',$2)`, [ids.alfa, "0".repeat(64)]));
   });
   await as({ role: "anon" }, async (q) => {
     for (const t of [...tables, "tenants", "audit_log", "provider_events"]) ok(`${t}: anon denied`, await rejects(q, `select 1 from ${t}`));
+    ok("anon cannot call add_subscriber", await rejects(q, `select public.add_subscriber($1,'a@example.com','x',$2)`, [ids.alfa, "0".repeat(64)]));
+    ok("anon cannot call delete_subscriber", await rejects(q, `select public.delete_subscriber($1)`, [ids.subA]));
   });
   await as(Adm, async (q) => {
     ok("audit_log: admin sees both tenants", (await count(q, `select count(distinct tenant_id) n from audit_log`)) === 2);
@@ -55,10 +59,24 @@ export async function runIsolationChecks(): Promise<string[]> {
 
   // ---- writes across tenants ----
   await as(A, async (q) => {
-    ok("subscribers: insert into beta rejected", await rejects(q, `insert into subscribers (tenant_id,email) values ($1,'x@example.com')`, [ids.beta]));
-    ok("subscribers: update beta row affects 0", (await q.query(`update subscribers set first_name='x' where id=$1`, [ids.subB])).rowCount === 0);
-    ok("subscribers: delete beta row affects 0", (await q.query(`delete from subscribers where id=$1`, [ids.subB])).rowCount === 0);
-    ok("subscribers: moving row to beta rejected", await rejects(q, `update subscribers set tenant_id=$1 where id=$2`, [ids.beta, ids.subA]));
+    // Direct writes to subscribers are not possible for anyone (all writes go through functions).
+    ok("subscribers: direct insert (own tenant) rejected", await rejects(q, `insert into subscribers (tenant_id,email,email_hash) values ($1,'x@example.com',$2)`, [ids.alfa, "0".repeat(64)]));
+    ok("subscribers: direct insert (other tenant) rejected", await rejects(q, `insert into subscribers (tenant_id,email,email_hash) values ($1,'x@example.com',$2)`, [ids.beta, "0".repeat(64)]));
+    ok("subscribers: direct update rejected", await rejects(q, `update subscribers set first_name='x' where id=$1`, [ids.subA]));
+    ok("subscribers: direct status change rejected", await rejects(q, `update subscribers set status='active' where tenant_id=$1`, [ids.alfa]));
+    ok("subscribers: direct delete rejected", await rejects(q, `delete from subscribers where id=$1`, [ids.subA]));
+    ok("subscribers: unqualified delete rejected", await rejects(q, `delete from subscribers`));
+    // Functions are guarded: other tenant's data, admin-only operations
+    const hB = subscriberHash(MASTER_KEY, ids.beta, "probe@example.com");
+    ok("add_subscriber into beta rejected", await rejects(q, `select public.add_subscriber($1,'probe@example.com','x',$2)`, [ids.beta, hB]));
+    ok("update_subscriber on beta row rejected", await rejects(q, `select public.update_subscriber($1,'x','probe@example.com',$2)`, [ids.subB, hB]));
+    ok("set_subscriber_active on beta row rejected", await rejects(q, `select public.set_subscriber_active($1,false)`, [ids.subB]));
+    ok("delete_subscriber on beta row rejected", await rejects(q, `select public.delete_subscriber($1)`, [ids.subB]));
+    ok("update_subscriber on a random id looks identical to a foreign id", await rejects(q, `select public.update_subscriber(gen_random_uuid(),'x','probe@example.com',$1)`, [hB]));
+    ok("log_list_export for beta rejected", await rejects(q, `select public.log_list_export($1)`, [ids.beta]));
+    ok("import_subscribers denied to a sender (admin only)", await rejects(q, `select public.import_subscribers($1,'[]'::jsonb)`, [ids.alfa]));
+    ok("import_preview denied to a sender (admin only)", await rejects(q, `select * from public.import_preview($1,array[]::text[])`, [ids.alfa]));
+    ok("erase_person denied to a sender (admin only)", await rejects(q, `select public.erase_person($1,'a@example.com',$2)`, [ids.alfa, hB]));
     ok("tags: insert into beta rejected", await rejects(q, `insert into tags (tenant_id,name) values ($1,'x')`, [ids.beta]));
     ok("tags: delete beta tag affects 0", (await q.query(`delete from tags where id=$1`, [ids.tagB])).rowCount === 0);
     ok("subscriber_tags: insert into beta rejected", await rejects(q, `insert into subscriber_tags values ($1,$2,$3)`, [ids.beta, ids.subB, ids.tagB]));
@@ -77,9 +95,12 @@ export async function runIsolationChecks(): Promise<string[]> {
 
   // ---- own-tenant behaviour (positive) ----
   await as(A, async (q) => {
-    ok("subscribers: sender can insert in alfa", !(await rejects(q, `insert into subscribers (tenant_id,email) values ($1,'new@example.com')`, [ids.alfa])));
-    ok("subscribers: sender can update in alfa", (await q.query(`update subscribers set first_name='x' where id=$1`, [ids.subA])).rowCount === 1);
-    ok("subscribers: sender can delete in alfa", (await q.query(`delete from subscribers where id=$1`, [ids.subA])).rowCount === 1);
+    const hNew = subscriberHash(MASTER_KEY, ids.alfa, "new@example.com");
+    ok("add_subscriber works in own tenant", !(await rejects(q, `select public.add_subscriber($1,'new@example.com','Ny',$2)`, [ids.alfa, hNew])));
+    ok("update_subscriber works in own tenant", !(await rejects(q, `select public.update_subscriber($1,'Nytt namn',(select email from subscribers where id=$1),(select email_hash from subscribers where id=$1))`, [ids.subA])));
+    ok("set_subscriber_active works in own tenant", !(await rejects(q, `select public.set_subscriber_active($1,false)`, [ids.subA])));
+    ok("log_list_export works in own tenant", !(await rejects(q, `select public.log_list_export($1)`, [ids.alfa])));
+    ok("delete_subscriber works in own tenant", !(await rejects(q, `select public.delete_subscriber($1)`, [ids.subA])));
     ok("campaigns: sender can edit own draft", (await q.query(`update campaigns set subject='ny' where id=$1`, [ids.draftA])).rowCount === 1);
     ok("campaigns: sender can create draft", !(await rejects(q, `insert into campaigns (tenant_id,subject,created_by) values ($1,'x',$2)`, [ids.alfa, USERS.senderAlfa])));
     ok("campaigns: cannot attribute draft to someone else", await rejects(q, `insert into campaigns (tenant_id,subject,created_by) values ($1,'x',$2)`, [ids.alfa, USERS.admin]));
@@ -90,6 +111,7 @@ export async function runIsolationChecks(): Promise<string[]> {
     ok("tenants: sender cannot edit settings", (await q.query(`update tenants set daily_send_limit=99999 where id=$1`, [ids.alfa])).rowCount === 0);
   });
   await as(Adm, async (q) => {
+    ok("import_preview works for dg_admin", !(await rejects(q, `select * from public.import_preview($1,array[]::text[])`, [ids.alfa])));
     ok("tenants: dg_admin can edit settings", (await q.query(`update tenants set footer_text='ny' where id=$1`, [ids.alfa])).rowCount === 1);
     ok("audit_log: admin cannot update", await rejects(q, `update audit_log set action='x'`));
     ok("audit_log: admin cannot delete", await rejects(q, `delete from audit_log`));
@@ -103,12 +125,11 @@ export async function runIsolationChecks(): Promise<string[]> {
              draftsA: Number((await c.query(`select count(*) n from campaigns where tenant_id=$1 and status='draft'`, [ids.alfa])).rows[0].n) };
   });
   await as(A, async (q) => {
-    ok("subscribers: unqualified update stays in own tenant", (await q.query(`update subscribers set first_name='x'`)).rowCount === own.subscribers);
     ok("tags: unqualified update stays in own tenant", (await q.query(`update tags set name=gen_random_uuid()::text`)).rowCount === own.tags);
     ok("campaigns: unqualified update only touches own drafts", (await q.query(`update campaigns set subject='x'`)).rowCount === own.draftsA);
     ok("tenants: unqualified update by sender affects 0", (await q.query(`update tenants set name=name`)).rowCount === 0);
   });
-  for (const [t, expected] of [["subscribers", own.subscribers], ["tags", own.tags], ["subscriber_tags", own.subscriber_tags], ["campaigns", own.draftsA]] as const) {
+  for (const [t, expected] of [["tags", own.tags], ["subscriber_tags", own.subscriber_tags], ["campaigns", own.draftsA]] as const) {
     await as(A, async (q) => {
       ok(`${t}: unqualified delete stays in own tenant`, (await q.query(`delete from ${t}`)).rowCount === expected);
     });
@@ -136,6 +157,14 @@ export async function runIsolationChecks(): Promise<string[]> {
                                   where n.nspname='public' and c.relkind='r'`)).rows;
     for (const r of rows) ok(`RLS enabled on ${r.relname}`, r.relrowsecurity === true);
     ok("at least 10 tables inspected", rows.length >= 10);
+    // Layer 1 of 2: no SECURITY DEFINER function may be executable by anon (the guards inside are layer 2).
+    const fns = (await c.query(`select p.proname, n.nspname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                where n.nspname in ('public','private') and p.prosecdef`)).rows;
+    ok("at least 10 definer functions inspected", fns.length >= 10);
+    for (const f of (await c.query(`select p.proname, n.nspname, has_function_privilege('anon', p.oid, 'execute') as anon_exec
+                                    from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+                                    where n.nspname in ('public','private') and p.prosecdef`)).rows)
+      ok(`anon has no execute on ${f.nspname}.${f.proname}`, f.anon_exec === false);
     await c.query("begin");
     ok("FK: subscriber_tags cross-tenant rejected", await rejects(c, `insert into subscriber_tags values ($1,$2,$3)`, [ids.alfa, ids.subB, ids.tagA]));
     ok("FK: campaign_recipients cross-tenant rejected", await rejects(c, `insert into campaign_recipients (tenant_id,campaign_id,subscriber_id) values ($1,$2,$3)`, [ids.alfa, ids.sentA, ids.subB]));

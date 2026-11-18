@@ -1,6 +1,6 @@
 // Fictional data only (example.com / example.org / .test). Deterministic.
 import type { ClientBase } from "pg";
-import { emailHash } from "../src/lib/email";
+import { subscriberHash } from "../src/lib/suppression";
 
 export const FIRST_NAMES = ["Anna", "Bo", "Cecilia", "David", "Elin", "Fredrik", "Gunnel", "Hugo", "Ida", "Johan"];
 
@@ -11,7 +11,7 @@ export const TENANTS = {
   beta: { name: "Brf Provbacken Beta", slug: "beta", reply_to: "styrelsen@beta.test", limit: 100, count: 40 },
 } as const;
 
-export async function seedData(db: ClientBase, users: SeedUsers, hashKeys = { alfa: "dev-key-alfa", beta: "dev-key-beta" }) {
+export async function seedData(db: ClientBase, users: SeedUsers, masterKey: string) {
   const ids: Record<string, string> = {};
   for (const [slug, t] of Object.entries(TENANTS)) {
     const r = await db.query(
@@ -34,12 +34,13 @@ export async function seedData(db: ClientBase, users: SeedUsers, hashKeys = { al
       // fixed status traps: 3 unsubscribed, 2 bounced, 1 complained
       const status = i <= 3 ? "unsubscribed" : i <= 5 ? "bounced" : i === 6 ? "complained" : "active";
       const email = `boende${String(i).padStart(3, "0")}@${slug}.example.com`;
-      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name,status) values ($1,$2,$3,$4) returning id`,
-        [tid, email, FIRST_NAMES[i % FIRST_NAMES.length], status])).rows[0].id);
+      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name,status,email_hash) values ($1,$2,$3,$4,$5) returning id`,
+        [tid, email, FIRST_NAMES[i % FIRST_NAMES.length], status, subscriberHash(masterKey, tid, email)])).rows[0].id);
     }
     // same address in both tenants, plus-address, unicode domain
     for (const e of ["shared@example.com", "anna+post@example.com", "åsa@bostäder.example.org"]) {
-      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name) values ($1,$2,'Test') returning id`, [tid, e])).rows[0].id);
+      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name,email_hash) values ($1,$2,'Test',$3) returning id`,
+        [tid, e, subscriberHash(masterKey, tid, e)])).rows[0].id);
     }
     for (let i = 0; i < subs.length; i++) {
       const tag = i % 2 ? "trapphus-a" : "trapphus-b";
@@ -47,7 +48,7 @@ export async function seedData(db: ClientBase, users: SeedUsers, hashKeys = { al
     }
     for (let i = 1; i <= 5; i++) {
       await db.query(`insert into suppressions (tenant_id,email_hash,reason) values ($1,$2,'unsubscribed')`,
-        [tid, emailHash(`avregistrerad${i}@${slug}.example.com`, hashKeys[slug as "alfa" | "beta"])]);
+        [tid, subscriberHash(masterKey, tid, `avregistrerad${i}@${slug}.example.com`)]);
     }
     const sender = slug === "alfa" ? users.senderAlfa : users.senderBeta;
     const sent = (await db.query(

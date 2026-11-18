@@ -23,7 +23,7 @@ describe("baseline", () => {
 });
 
 describe("every policy matters", () => {
-  it("has a sane number of policies to mutate", async () => expect((await policies()).length).toBeGreaterThanOrEqual(20));
+  it("has a sane number of policies to mutate", async () => expect((await policies()).length).toBeGreaterThanOrEqual(15));
 
   it("DROPPING any single policy turns the suite red", async () => {
     const survivors: string[] = [];
@@ -57,6 +57,39 @@ describe("every policy matters", () => {
       finally { await exec(`alter table public.${t} enable row level security`); }
     }
     expect(survivors).toEqual([]);
+  });
+
+  it("neutralising any guard or helper function turns the suite red", async () => {
+    const survivors: string[] = [];
+    const targets: [string, string][] = [
+      ["private.assert_member(uuid)", "returns void language plpgsql as $$ begin end $$"],
+      ["private.assert_admin(uuid)", "returns void language plpgsql as $$ begin end $$"],
+      ["private.is_member(uuid)", "returns boolean language sql as $$ select true $$"],
+      ["private.has_role(uuid, public.member_role)", "returns boolean language sql as $$ select true $$"],
+      ["private.is_aal2()", "returns boolean language sql as $$ select true $$"],
+    ];
+    for (const [sig, body] of targets) {
+      const oid = await admin(async (c) => (await c.query(`select pg_get_functiondef('${sig}'::regprocedure) d`)).rows[0].d as string);
+      const name = sig.slice(0, sig.indexOf("("));
+      const args = sig.slice(sig.indexOf("("));
+      const argList = args === "(uuid)" ? "(t uuid)" : args === "()" ? "()" : "(t uuid, r public.member_role)";
+      await exec(`create or replace function ${name}${argList} ${body}`);
+      try { if ((await runIsolationChecks()).length === 0) survivors.push(sig); }
+      finally { await exec(oid); }
+    }
+    expect(survivors, "these guards could be removed unnoticed").toEqual([]);
+  });
+
+  it("granting direct write access on subscribers turns the suite red", async () => {
+    await exec(`grant insert, update, delete on public.subscribers to authenticated`);
+    try { expect((await runIsolationChecks()).length).toBeGreaterThan(0); }
+    finally { await exec(`revoke insert, update, delete on public.subscribers from authenticated`); }
+  });
+
+  it("granting execute on admin functions to anon turns the suite red", async () => {
+    await exec(`grant execute on function public.add_subscriber(uuid,text,text,text), public.delete_subscriber(uuid) to anon`);
+    try { expect((await runIsolationChecks()).length).toBeGreaterThan(0); }
+    finally { await exec(`revoke execute on function public.add_subscriber(uuid,text,text,text), public.delete_subscriber(uuid) from anon, public`); }
   });
 
   it("is green again after all restores", async () => expect(await runIsolationChecks()).toEqual([]));

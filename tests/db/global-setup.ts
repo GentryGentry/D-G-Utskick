@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import pg from "pg";
 import { seedData } from "../../scripts/seed-data";
-import { USERS } from "./fixtures";
+import { MASTER_KEY, USERS } from "./fixtures";
 
 export default async function setup() {
   const url = process.env.TEST_DATABASE_URL;
@@ -15,6 +15,6 @@ export default async function setup() {
     const dir = join(__dirname, "../../supabase/migrations");
     for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.query(readFileSync(join(dir, f), "utf8"));
     for (const [k, id] of Object.entries(USERS)) await db.query(`insert into auth.users (id,email) values ($1,$2)`, [id, `${k}@example.com`]);
-    await seedData(db, USERS);
+    await seedData(db, USERS, MASTER_KEY);
   } finally { await db.end(); }
 }

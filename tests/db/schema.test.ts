@@ -1,6 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { normalizeEmail } from "../../src/lib/email";
 import { admin, pool, rejects } from "./helpers";
+import { MASTER_KEY } from "./fixtures";
+import { subscriberHash } from "../../src/lib/suppression";
+const H = (t: string, e: string) => subscriberHash(MASTER_KEY, t, e);
 
 afterAll(() => pool.end());
 const tx = async <T>(fn: (c: any) => Promise<T>) => admin(async (c) => { await c.query("begin"); try { return await fn(c); } finally { await c.query("rollback"); } });
@@ -30,15 +33,15 @@ describe("e-mail normalisation", () => {
   it.each(["  Boende@Example.COM ", "Åsa@example.com", "x+Tag@EXAMPLE.org"])("SQL trigger matches TypeScript for %j", async (raw) => {
     const sql = await tx(async (c) => {
       const t = (await c.query(`select id from tenants where slug='alfa'`)).rows[0].id;
-      return (await c.query(`insert into subscribers (tenant_id,email) values ($1,$2) returning email`, [t, raw])).rows[0].email;
+      return (await c.query(`insert into subscribers (tenant_id,email,email_hash) values ($1,$2,$3) returning email`, [t, raw, H(t, raw)])).rows[0].email;
     });
     expect(sql).toBe(normalizeEmail(raw));
   });
   it("rejects duplicates that differ only by case/whitespace", async () => {
     await tx(async (c) => {
       const t = (await c.query(`select id from tenants where slug='alfa'`)).rows[0].id;
-      await c.query(`insert into subscribers (tenant_id,email) values ($1,'dup@example.com')`, [t]);
-      expect(await rejects(c, `insert into subscribers (tenant_id,email) values ($1,' DUP@Example.com ')`, [t])).toBe(true);
+      await c.query(`insert into subscribers (tenant_id,email,email_hash) values ($1,'dup@example.com',$2)`, [t, H(t, "dup@example.com")]);
+      expect(await rejects(c, `insert into subscribers (tenant_id,email,email_hash) values ($1,' DUP@Example.com ',$2)`, [t, H(t, "other@example.com")])).toBe(true);
     });
   });
   it("allows the same address in two tenants", async () => {
@@ -49,7 +52,7 @@ describe("e-mail normalisation", () => {
     await tx(async (c) => {
       const t = (await c.query(`select id from tenants where slug='alfa'`)).rows[0].id;
       for (const bad of ["a@example.com\r\nBcc: x@y.z", "foo@", "@bar", ""])
-        expect(await rejects(c, `insert into subscribers (tenant_id,email) values ($1,$2)`, [t, bad]), JSON.stringify(bad)).toBe(true);
+        expect(await rejects(c, `insert into subscribers (tenant_id,email,email_hash) values ($1,$2,$3)`, [t, bad, H(t, "x@example.com")]), JSON.stringify(bad)).toBe(true);
       expect(await rejects(c, `insert into campaigns (tenant_id,subject) values ($1,E'Hej\\nBcc: x@y.z')`, [t])).toBe(true);
     });
   });

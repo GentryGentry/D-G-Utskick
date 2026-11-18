@@ -4,3 +4,5 @@ export const USERS = {
   senderBeta: "00000000-0000-4000-8000-000000000003",
   senderNone: "00000000-0000-4000-8000-000000000004",
 };
+
+export const MASTER_KEY = "test-master-key-0123456789abcdef0123456789abcdef";

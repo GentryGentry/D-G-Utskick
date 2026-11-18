@@ -10,8 +10,8 @@ import { seedData, type SeedUsers } from "./seed-data";
 async function main() {
   if (process.env.SEED_I_KNOW_THIS_IS_DEV !== "yes") throw new Error("Set SEED_I_KNOW_THIS_IS_DEV=yes to confirm this is a development project.");
   if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed with NODE_ENV=production.");
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY, dbUrl = process.env.DATABASE_URL;
-  if (!url || !key || !dbUrl) throw new Error("Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL.");
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY, dbUrl = process.env.DATABASE_URL, master = process.env.SUPPRESSION_HMAC_MASTER_KEY;
+  if (!url || !key || !dbUrl || !master) throw new Error("Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL or SUPPRESSION_HMAC_MASTER_KEY.");
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
   const wanted = { admin: "admin@dg.example.org", senderAlfa: "sender-alfa@example.com", senderBeta: "sender-beta@example.com", senderNone: "sender-ingen@example.com" };
@@ -39,7 +39,7 @@ async function main() {
       ids[k as keyof SeedUsers] = data.user.id; creds[email] = password; created.push(data.user.id);
     }
     await db.query("begin");
-    try { await seedData(db, ids); await db.query("commit"); } catch (e) { await db.query("rollback"); throw e; }
+    try { await seedData(db, ids, master); await db.query("commit"); } catch (e) { await db.query("rollback"); throw e; }
     writeFileSync(".seed-credentials.local.json", JSON.stringify(creds, null, 2), { mode: 0o600 });
   } catch (e) {
     for (const id of created) await admin.auth.admin.deleteUser(id).catch(() => {}); // leave nothing half-done
