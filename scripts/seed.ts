@@ -15,19 +15,36 @@ async function main() {
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
   const wanted = { admin: "admin@dg.example.org", senderAlfa: "sender-alfa@example.com", senderBeta: "sender-beta@example.com", senderNone: "sender-ingen@example.com" };
-  const ids = {} as Record<keyof SeedUsers, string>;
-  const creds: Record<string, string> = {};
-  for (const [k, email] of Object.entries(wanted)) {
-    const password = randomBytes(18).toString("base64url");
-    const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-    if (error || !data.user) throw new Error(`Could not create ${k}: ${error?.message} (already seeded? reset the dev project first)`);
-    ids[k as keyof SeedUsers] = data.user.id; creds[email] = password;
-  }
+
+  // 1. Fail fast: prove the database connection BEFORE touching Supabase Auth.
   const db = new pg.Client({ connectionString: dbUrl });
   await db.connect();
-  try { await db.query("begin"); await seedData(db, ids); await db.query("commit"); }
-  catch (e) { await db.query("rollback"); throw e; } finally { await db.end(); }
-  writeFileSync(".seed-credentials.local.json", JSON.stringify(creds, null, 2), { mode: 0o600 });
+  const created: string[] = [];
+  try {
+    // 2. Refuse if already seeded (never overwrite or delete anything that looks real).
+    const exists = await db.query(`select count(*)::int n from tenants where slug in ('alfa','beta')`);
+    if (exists.rows[0].n > 0) throw new Error("Already seeded (tenants alfa/beta exist). Reset the dev project instead of seeding twice.");
+
+    // 3. Remove leftover fictional users from an earlier half-finished attempt (exact fictional addresses only).
+    const { data: list, error: listErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    if (listErr) throw new Error(`Could not list users: ${listErr.message}`);
+    for (const u of list.users) if (u.email && Object.values(wanted).includes(u.email)) await admin.auth.admin.deleteUser(u.id);
+
+    const ids = {} as Record<keyof SeedUsers, string>;
+    const creds: Record<string, string> = {};
+    for (const [k, email] of Object.entries(wanted)) {
+      const password = randomBytes(18).toString("base64url");
+      const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+      if (error || !data.user) throw new Error(`Could not create ${k}: ${error?.message}`);
+      ids[k as keyof SeedUsers] = data.user.id; creds[email] = password; created.push(data.user.id);
+    }
+    await db.query("begin");
+    try { await seedData(db, ids); await db.query("commit"); } catch (e) { await db.query("rollback"); throw e; }
+    writeFileSync(".seed-credentials.local.json", JSON.stringify(creds, null, 2), { mode: 0o600 });
+  } catch (e) {
+    for (const id of created) await admin.auth.admin.deleteUser(id).catch(() => {}); // leave nothing half-done
+    throw e;
+  } finally { await db.end(); }
   console.log("Seeded 2 associations and 4 users. Credentials: .seed-credentials.local.json");
 }
 main().catch((e) => { console.error(e.message); process.exit(1); });
