@@ -20,7 +20,7 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const dest = destinationFor(!!user, aal?.currentLevel);
 
-  const protectedArea = path.startsWith("/app");
+  const protectedArea = path.startsWith("/app") || path.startsWith("/admin");
   if (protectedArea && dest !== "ok") return NextResponse.redirect(new URL(dest, request.url));
   if (path === "/mfa" && dest === "/login") return NextResponse.redirect(new URL("/login", request.url));
   return response;

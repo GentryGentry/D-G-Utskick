@@ -55,4 +55,26 @@ Användarroller får inte uppdatera `tenant_id`, `id` eller `campaigns.status`; 
 ## D-015 Next.js 16: `proxy.ts` ersätter `middleware.ts`
 Används enligt installerad version. Proxyn är bara första försvarslinjen; varje skyddad sida anropar `requireFullAuth()`.
 
+## D-016 Spärrnyckel: huvudnyckel i miljön, adresshash lagras på abonnenten
+`subscribers.email_hash` (ny kolumn, unik per förening) och `suppressions.email_hash` är HMAC-SHA256 av den normaliserade adressen med en nyckel som härleds per förening från `SUPPRESSION_HMAC_MASTER_KEY` (miljövariabel, minst 32 tecken). Nyckeln når aldrig databasen. Databasen jämför bara hashar, så att utskickskön i M4 kan utesluta spärrade adresser med ren SQL.
+**Medvetet accepterad risk:** hashen beräknas av appen. En inloggad användare i en förening som anropar databasfunktionen direkt med påhittad hash kan lägga till en spärrad adress i *sin egen* förening. Kräver ett avsiktligt angrepp från ett inloggat, TOTP-verifierat konto som redan kan skicka till hela listan. Att stänga luckan kräver hashning i databasen med nyckel i Supabase Vault. Kandidat för M6.
+**Driftkrav:** nyckeln måste sparas säkert och får aldrig bytas utan omhashning. Förlust: gamla spärrnoteringar slutar matcha (risk att avregistrerade läggs till igen). Läckage: hasharna kan slås upp mot en adresslista.
+
+## D-017 Alla skrivningar till `subscribers` går via SECURITY DEFINER-funktioner — AVVIKELSE
+INSERT, UPDATE och DELETE är indragna för API-rollerna. Funktionerna `add_subscriber`, `update_subscriber`, `set_subscriber_active`, `delete_subscriber`, `import_subscribers`, `import_preview`, `erase_person` och `log_list_export` kontrollerar roll och förening, och är de enda vägarna in.
+**Skäl:** med direkt tabellåtkomst kunde en användare med ett API-anrop sätta `unsubscribed` till `active` och därmed bryta mot ett samtycke. Nu kan en användare bara växla `active` ↔ `inactive`. Avregistrerade, studsade och klagomål är låsta. En ny status `inactive` (avaktiverad av användare) lades till. Policyerna för INSERT/UPDATE/DELETE på `subscribers` är borttagna eftersom de inte längre har någon funktion. Samma felmeddelande ges för "finns inte" och "inte din" så att andra föreningars id inte kan sondas.
+
+## D-018 Två sorters radering (beslut: Thomas)
+"Ta bort adress" (Carl): hård radering, men en spärrnotering (`reason='deleted'`) sparas så att personen inte läggs till igen av misstag. "Radera helt på begäran" (bara D&G, `erase_person`): tar bort adressen, spärrnoteringen och leverantörshändelser som innehåller adressen. Ingen hash sparas. Auditloggen får bara åtgärdskod, aldrig adress. Kampanjhistorik behålls utan personkoppling.
+**Följd att dokumentera i PERSONUPPGIFTER.md (M6):** efter full radering kan adressen läggas till igen, till exempel vid ny import. Föreningen måste föra egen anteckning om vem som begärt radering. Säkerhetskopior innehåller uppgifterna tills de roterats ut.
+
+## D-019 Massimport är bara för D&G — AVVIKELSE från milstolpetexten
+Milstolpe 2 listar CSV-import under adresslistan, men "Gränser för användaren Carl" säger att massimport ska ligga i adminvyn. Importen ligger därför under `/admin` (kräver `dg_admin`, kontrolleras i databasen). Carl kan lägga till, redigera, avaktivera och ta bort enskilda adresser samt **exportera** (loggas i auditloggen).
+
+## D-020 CSV-hantering
+Importen känner av semikolon, komma och tab, läser både UTF-8 och Windows-1252 (svensk Excel), och rapporterar ogiltiga rader med verkligt radnummer. Exporten använder semikolon och BOM så att svensk Excel öppnar den rätt. Celler som börjar med `=`, `+`, `-`, `@` får ett inledande apostrof (formelinjektion); importen tar bort det igen så att export → import ger samma data. Taggar i filen läggs även till på adresser som redan finns. Importen återaktiverar aldrig någon och ändrar inte befintliga adressers status.
+
+## D-021 Migrering 0004 kräver tom dev-databas
+Kolumnen `email_hash` är NOT NULL och kan inte fyllas i efterhand (nyckeln finns inte i databasen). Migreringen avbryter med instruktion om det finns rader. Gäller bara dev-databasen. Kör `truncate public.tenants cascade;` och seeda om.
+
 ## D-010 Tidsbudget: 40 timmar är snålt — se ARCHITECTURE.md §8

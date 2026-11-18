@@ -27,7 +27,7 @@ Enligt instruktionen, med dessa förfiningar:
 
 | Tabell | Tillägg |
 |---|---|
-| `subscribers` | `unique(tenant_id, lower(email))`. E-post normaliseras (trim, lowercase, NFC) vid skrivning. |
+| `subscribers` | `unique(tenant_id, email)` (normaliserad: trim, lowercase, NFC) och `unique(tenant_id, email_hash)`. Status utökad med `inactive`. Inga direkta skrivningar för användare, bara via funktioner (D-016/D-017). |
 | `campaigns` | `body_json` + renderade `html`/`text` fryses vid bekräftelse så att det som godkändes är det som skickas. `approved_at`. `idempotency_key` (UUID från klienten, unik per tenant) mot dubbelklick. |
 | `campaign_recipients` | Status utökas: `sending`, `unknown` (D-002). `attempts`, `claimed_at`. `subscriber_id` är **nullable, `ON DELETE SET NULL`**, så att historik överlever hård radering utan personkoppling. Ingen kopia av adressen här. |
 | `suppressions` | `email_hash` = HMAC (D-004). `unique(tenant_id, email_hash)`. |
@@ -60,6 +60,8 @@ Enligt instruktionen, med dessa förfiningar:
 | XSS i mejl/förhandsgranskning | Kapning av inloggad sida | Sanera HTML med strikt allowlist, förhandsgranskning i `<iframe sandbox>` utan skript, CSP |
 | CSV-formelinjektion vid export | Excel kör formel | Prefixa celler som börjar med `= + - @` |
 | Header-injektion via ämne/namn | Falska rubriker | Avvisa CR/LF, använd SDK:ns strukturerade rubriker |
+| Kapat konto lägger tillbaka spärrad adress med påhittad hash | Spärrad person får mejl | Accepterad risk (D-016), kräver TOTP-konto med sändrätt. Åtgärdas med hashning i databasen (M6) |
+| Användare återaktiverar avregistrerad | Utskick utan samtycke | Status låst i databasen, bara active↔inactive (D-017), testat |
 | Läckage i loggar | Brott mot regel 3 | Central `maskEmail()`, lint-regel mot `console.log` av objekt med e-post, test |
 | Servicenyckel läcker | Total åtkomst | Bara server-side, aldrig `NEXT_PUBLIC_`, hemlighetsskanning i CI |
 | Raderad person finns kvar i backup | Radering ej fullständig | Dokumentera backup-retention i `DRIFT.md`; PERSONUPPGIFTER.md anger fördröjning |

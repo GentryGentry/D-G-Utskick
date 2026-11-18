@@ -24,3 +24,6 @@ Regel: bara `example.com` / `example.org` / `.test`. Inget som liknar verkliga p
 
 ## Hur den körs
 - Skript `scripts/seed.ts`, vägrar köra om `NODE_ENV=production` eller om databas-URL inte är lokal/dev-projekt. Idempotent: nollställer bara seed-tenanterna.
+
+## CSV-fixturer (milstolpe 2)
+`tests/fixtures/import-alfa.csv` (UTF-8 med BOM, semikolon) och `import-alfa-excel-1252.csv` (samma innehåll som svensk Excel sparar det). 14 rader: 5 nya, 2 som finns, 2 spärrade, 1 dubblett i filen, 3 ogiltiga (rad 10, 11, 12), plusadress och unicode-domän. Förväntat resultat är låst av `tests/unit/fixtures.test.ts`.

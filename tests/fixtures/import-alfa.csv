@@ -1,0 +1,14 @@
+﻿E-post;Förnamn;Taggar
+ny.boende1@alfa.example.com;Åsa;trapphus-a, nyboende
+ny.boende2@alfa.example.com;Örjan;trapphus-b
+NY.BOENDE3@Alfa.Example.com ;Märta;
+ny.boende1@alfa.example.com;;styrelse
+boende001@alfa.example.com;Anna;nyboende
+boende020@alfa.example.com;Bo;
+avregistrerad1@alfa.example.com;Spökad;trapphus-a
+avregistrerad2@alfa.example.com;Spökad;
+foo@;Ogiltig;
+@bar;Ogiltig;
+;Tom;
+plus+adress@alfa.example.com;Plus;trapphus-a
+åsa@bostäder.example.org;Unicode;

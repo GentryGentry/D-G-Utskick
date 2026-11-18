@@ -2,7 +2,7 @@
 
 Utskickstjänst för bostadsrättsföreningar. Se `docs/BYGGINSTRUKTION.md` (hur), `docs/ARCHITECTURE.md` (design) och `docs/DECISIONS.md` (beslut).
 
-Status: milstolpe 1 (grund) klar och verifierad mot riktigt Supabase.
+Status: milstolpe 1 klar och verifierad mot riktigt Supabase. Milstolpe 2 (adresslista) klar för granskning, ej verifierad mot riktigt Supabase.
 
 ## Kommandon
 ```bash
@@ -20,3 +20,10 @@ npm run build
 4. `SEED_I_KNOW_THIS_IS_DEV=yes SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… DATABASE_URL=… npm run seed`
 5. `npm run dev`, logga in som `sender-alfa@example.com` (lösenord i `.seed-credentials.local.json`), ställ in TOTP, kontrollera att bara "Brf Testgården Alfa" syns.
 6. Logga in som `sender-ingen@example.com`: ska se "inte kopplat till någon förening".
+
+## Milstolpe 2: kontroll mot Supabase
+1. `git pull` och `npm.cmd install`.
+2. Skapa huvudnyckeln och spara den i lösenordshanteraren: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Lägg den som `SUPPRESSION_HMAC_MASTER_KEY=` i `.env.local`.
+3. SQL Editor, en fråga i taget: `truncate public.tenants cascade;`, sedan innehållet i `0003_inactive_status.sql`, sedan `0004_subscriber_management.sql` (D-021).
+4. Seeda om (samma `$env:`-rader som förra gången, plus `$env:SUPPRESSION_HMAC_MASTER_KEY='…'` med **samma** värde som i `.env.local`). Seed städar själv bort de gamla testanvändarna.
+5. `npm.cmd run dev` och följ testlistan som Claude ger.
