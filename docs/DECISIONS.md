@@ -37,4 +37,20 @@ Avanmälningstoken: `v1.<recipient_id>.<signatur>`, nyckel-id i token. Tokens sk
 ## D-009 Supabase-region
 Stockholm (`eu-north-1`) om tillgänglig vid projektskapande, annars Frankfurt. Samma region som SES minskar latens men är inget krav.
 
+## D-011 TOTP krävs för alla roller — AVVIKELSE (strängare)
+Instruktionen kräver tvåstegsverifiering för `sender`. Vi kräver den för **alla** användare, inklusive `dg_admin`. Ett kapat adminkonto är värre än ett kapat sender-konto. Gäller i tre lager: proxy, `requireFullAuth()` på serversidan, och `private.can_send()` (kräver `aal2` i JWT) som alla sändande funktioner i M4 måste anropa.
+
+## D-012 RLS är testad mot vanlig Postgres 16, inte mot riktiga Supabase
+Docker och Supabase CLI saknas i utvecklingsmiljön. Testerna kör migreringarna mot en tillfällig Postgres 16 med en liten förenkling av Supabase (`tests/db/supabase-shim.sql`: rollerna `anon`/`authenticated`/`service_role`, `auth.uid()`, `auth.jwt()`).
+**Obevisat tills det körs mot ett riktigt Supabase-projekt:** att migreringarna går igenom där, att `auth.jwt()->>'aal'` är `aal2` efter TOTP, att inloggnings- och MFA-flödet i webbläsaren fungerar. Gör detta i dev-projektet före godkännande av M1 (se checklista i README).
+
+## D-013 Skrivningar utan WHERE testas särskilt
+Mutationstestet visade att ett test med `WHERE id = …` missar för breda DELETE/UPDATE-policyer, eftersom SELECT-policyn då även filtrerar. Isoleringstesten kör därför även `delete from …`/`update … ` helt utan filter och kräver att bara den egna föreningens rader berörs.
+
+## D-014 Kolumnnivå-rättigheter
+Användarroller får inte uppdatera `tenant_id`, `id` eller `campaigns.status`; rättigheter är beviljade per kolumn. Statusövergångar för utskick sker i M4 via `SECURITY DEFINER`-funktioner. `provider_events` har inga rättigheter alls för API-rollerna. `audit_log` har en trigger som blockerar UPDATE/DELETE (undantag för tenant-radering i M6).
+
+## D-015 Next.js 16: `proxy.ts` ersätter `middleware.ts`
+Används enligt installerad version. Proxyn är bara första försvarslinjen; varje skyddad sida anropar `requireFullAuth()`.
+
 ## D-010 Tidsbudget: 40 timmar är snålt — se ARCHITECTURE.md §8

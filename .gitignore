@@ -7,3 +7,4 @@ node_modules/
 .DS_Store
 dev-outbox/
 coverage/
+.seed-credentials.local.json
