@@ -2,7 +2,7 @@
 
 Utskickstjänst för bostadsrättsföreningar. Se `docs/BYGGINSTRUKTION.md` (hur), `docs/ARCHITECTURE.md` (design) och `docs/DECISIONS.md` (beslut).
 
-Status: milstolpe 1 (grund) klar för granskning.
+Status: milstolpe 1 (grund) klar och verifierad mot riktigt Supabase.
 
 ## Kommandon
 ```bash

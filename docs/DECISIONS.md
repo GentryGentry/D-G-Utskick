@@ -44,6 +44,8 @@ Instruktionen kräver tvåstegsverifiering för `sender`. Vi kräver den för **
 Docker och Supabase CLI saknas i utvecklingsmiljön. Testerna kör migreringarna mot en tillfällig Postgres 16 med en liten förenkling av Supabase (`tests/db/supabase-shim.sql`: rollerna `anon`/`authenticated`/`service_role`, `auth.uid()`, `auth.jwt()`).
 **Obevisat tills det körs mot ett riktigt Supabase-projekt:** att migreringarna går igenom där, att `auth.jwt()->>'aal'` är `aal2` efter TOTP, att inloggnings- och MFA-flödet i webbläsaren fungerar. Gör detta i dev-projektet före godkännande av M1 (se checklista i README).
 
+**Uppdatering (verifierat av Thomas mot riktigt Supabase, dev-projekt i EU):** migreringarna går igenom, Security Advisor visar 0 fel och 0 varningar (1 info: `provider_events` saknar policy, avsiktligt), seed gick igenom, och inloggning + TOTP fungerar. Åtta manuella tester godkända, inklusive att alfa-användare bara ser Alfa, beta-användare bara Beta och användare utan förening ingenting. **Ej körda av Thomas:** SQL-kontrollerna av policyantal (21) och anon-rättigheter. Täcks av de automatiska testerna men är inte bekräftade i Supabase.
+
 ## D-013 Skrivningar utan WHERE testas särskilt
 Mutationstestet visade att ett test med `WHERE id = …` missar för breda DELETE/UPDATE-policyer, eftersom SELECT-policyn då även filtrerar. Isoleringstesten kör därför även `delete from …`/`update … ` helt utan filter och kräver att bara den egna föreningens rader berörs.
 
