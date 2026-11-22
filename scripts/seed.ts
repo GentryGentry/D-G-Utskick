@@ -14,7 +14,7 @@ async function main() {
   if (!url || !key || !dbUrl || !master) throw new Error("Missing SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL or SUPPRESSION_HMAC_MASTER_KEY.");
 
   const admin = createClient(url, key, { auth: { persistSession: false } });
-  const wanted = { admin: "admin@dg.example.org", senderAlfa: "sender-alfa@example.com", senderBeta: "sender-beta@example.com", senderNone: "sender-ingen@example.com" };
+  const wanted = { admin: "admin@dg.example.org", senderAlfa: "sender-alfa@example.com", senderBeta: "sender-beta@example.com", senderNone: "sender-ingen@example.com", boardAlfa: "board-alfa@example.com" };
 
   // 1. Fail fast: prove the database connection BEFORE touching Supabase Auth.
   const db = new pg.Client({ connectionString: dbUrl });
@@ -45,6 +45,6 @@ async function main() {
     for (const id of created) await admin.auth.admin.deleteUser(id).catch(() => {}); // leave nothing half-done
     throw e;
   } finally { await db.end(); }
-  console.log("Seeded 2 associations and 4 users. Credentials: .seed-credentials.local.json");
+  console.log("Seeded 2 associations and 5 users. Credentials: .seed-credentials.local.json");
 }
 main().catch((e) => { console.error(e.message); process.exit(1); });

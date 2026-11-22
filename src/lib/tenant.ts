@@ -2,7 +2,8 @@ import "server-only";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type TenantRole = "dg_admin" | "sender";
+export type TenantRole = "dg_admin" | "sender" | "board_viewer";
+export const canManage = (role: TenantRole) => role === "dg_admin" || role === "sender";
 export type TenantCtx = { id: string; name: string; role: TenantRole };
 
 /** Memberships come back through RLS, so this only ever lists the user's own associations. */
@@ -16,9 +17,10 @@ export async function loadContext(supabase: SupabaseClient, userId: string, requ
   return { tenants, current, isAdmin: tenants.some((t) => t.role === "dg_admin") };
 }
 
+/** Pages and actions that change or list addresses. A board_viewer is a member but not staff (D-024). */
 export async function requireTenant(supabase: SupabaseClient, userId: string, requested?: string) {
   const ctx = await loadContext(supabase, userId, requested);
-  if (!ctx.current) redirect("/app");
+  if (!ctx.current || !canManage(ctx.current.role)) redirect("/app");
   return { ...ctx, current: ctx.current };
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { loadContext } from "@/lib/tenant";
+import { canManage, loadContext } from "@/lib/tenant";
 import { toCsv } from "@/lib/csv";
 
 export async function GET(req: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
   if (!user || aal?.currentLevel !== "aal2") return new NextResponse("Unauthorized", { status: 401 });
   const { current } = await loadContext(supabase, user.id, req.nextUrl.searchParams.get("tenant") ?? undefined);
-  if (!current) return new NextResponse("Forbidden", { status: 403 });
+  if (!current || !canManage(current.role)) return new NextResponse("Forbidden", { status: 403 });
 
   const subs: any[] = [];
   for (let from = 0; ; from += 1000) {

@@ -27,8 +27,9 @@ export async function runIsolationChecks(): Promise<string[]> {
   const A = { sub: USERS.senderAlfa, aal: "aal2" as const };
   const None = { sub: USERS.senderNone, aal: "aal2" as const };
   const Adm = { sub: USERS.admin, aal: "aal2" as const };
+  const Board = { sub: USERS.boardAlfa, aal: "aal2" as const };
   const count = async (q: any, sql: string, p: unknown[] = []) => Number((await q.query(sql, p)).rows[0].n);
-  const tables = ["subscribers", "tags", "subscriber_tags", "campaigns", "campaign_recipients", "suppressions", "memberships"];
+  const tables = ["subscribers", "tags", "subscriber_tags", "campaigns", "campaign_recipients", "suppressions", "memberships", "subscription_requests"];
 
   // ---- reads ----
   await as(A, async (q) => {
@@ -54,7 +55,7 @@ export async function runIsolationChecks(): Promise<string[]> {
   });
   await as(Adm, async (q) => {
     ok("audit_log: admin sees both tenants", (await count(q, `select count(distinct tenant_id) n from audit_log`)) === 2);
-    ok("memberships: admin sees tenant members", (await count(q, `select count(*) n from memberships where tenant_id=$1`, [ids.alfa])) === 2);
+    ok("memberships: admin sees tenant members", (await count(q, `select count(*) n from memberships where tenant_id=$1`, [ids.alfa])) === 3);
   });
 
   // ---- writes across tenants ----
@@ -142,6 +143,64 @@ export async function runIsolationChecks(): Promise<string[]> {
       `insert into subscriber_tags select tenant_id, $1, id from tags where tenant_id=$2 limit 1 on conflict do nothing`, [ids.subA, ids.alfa])));
     ok("subscriber_tags: sender can unlink in alfa", (await q.query(`delete from subscriber_tags where subscriber_id=$1`, [ids.subA])).rowCount! >= 1);
     ok("campaigns: sender can delete own draft", (await q.query(`delete from campaigns where id=$1`, [ids.draftA])).rowCount === 1);
+  });
+
+  // ---- board_viewer: may read history, may do nothing else ----
+  await as(Board, async (q) => {
+    ok("board: sees own tenant row", (await count(q, `select count(*) n from tenants where id=$1`, [ids.alfa])) === 1);
+    ok("board: sees nothing of beta in tenants", (await count(q, `select count(*) n from tenants where id<>$1`, [ids.alfa])) === 0);
+    for (const t of ["campaigns", "campaign_recipients"]) {
+      ok(`board: CAN read ${t} of own tenant`, (await count(q, `select count(*) n from ${t} where tenant_id=$1`, [ids.alfa])) > 0);
+      ok(`board: sees nothing of beta in ${t}`, (await count(q, `select count(*) n from ${t} where tenant_id<>$1`, [ids.alfa])) === 0);
+    }
+    for (const t of ["subscribers", "tags", "subscriber_tags", "suppressions", "subscription_requests", "audit_log"])
+      ok(`board: sees no rows in ${t}`, (await count(q, `select count(*) n from ${t}`)) === 0);
+    ok("board: memberships limited to own", (await count(q, `select count(*) n from memberships where user_id<>$1`, [USERS.boardAlfa])) === 0);
+    const h = subscriberHash(MASTER_KEY, ids.alfa, "board-probe@example.com");
+    ok("board: add_subscriber rejected", await rejects(q, `select public.add_subscriber($1,'board-probe@example.com','x',$2)`, [ids.alfa, h]));
+    ok("board: update_subscriber rejected", await rejects(q, `select public.update_subscriber($1,'x','board-probe@example.com',$2)`, [ids.subA, h]));
+    ok("board: set_subscriber_active rejected", await rejects(q, `select public.set_subscriber_active($1,false)`, [ids.subA]));
+    ok("board: delete_subscriber rejected", await rejects(q, `select public.delete_subscriber($1)`, [ids.subA]));
+    ok("board: log_list_export rejected", await rejects(q, `select public.log_list_export($1)`, [ids.alfa]));
+    ok("board: import_subscribers rejected", await rejects(q, `select public.import_subscribers($1,'[]'::jsonb)`, [ids.alfa]));
+    ok("board: import_preview rejected", await rejects(q, `select * from public.import_preview($1,array[]::text[])`, [ids.alfa]));
+    ok("board: erase_person rejected", await rejects(q, `select public.erase_person($1,'a@example.com',$2)`, [ids.alfa, h]));
+    ok("board: cannot create a draft", await rejects(q, `insert into campaigns (tenant_id,subject,created_by) values ($1,'x',$2)`, [ids.alfa, USERS.boardAlfa]));
+    ok("board: cannot edit a draft", (await q.query(`update campaigns set subject='x' where id=$1`, [ids.draftA])).rowCount === 0);
+    ok("board: cannot delete a draft", (await q.query(`delete from campaigns where id=$1`, [ids.draftA])).rowCount === 0);
+    ok("board: cannot create tags", await rejects(q, `insert into tags (tenant_id,name) values ($1,'x')`, [ids.alfa]));
+    ok("board: cannot edit tenant settings", (await q.query(`update tenants set name='x' where id=$1`, [ids.alfa])).rowCount === 0);
+    ok("board: cannot self-promote", await rejects(q, `update memberships set role='dg_admin' where user_id=$1`, [USERS.boardAlfa]));
+    ok("board: can_send is false even with aal2", (await q.query(`select private.can_send($1) ok`, [ids.alfa])).rows[0].ok === false);
+  });
+
+  // ---- new columns and tables ----
+  const hasCol = async (actor: any, tbl: string, col: string) => as(actor, async (q) => (await q.query(`select has_column_privilege('authenticated', $1, $2, 'select') ok`, [`public.${tbl}`, col])).rows[0].ok as boolean);
+  for (const [name, actor] of [["sender", A], ["board", Board], ["admin", Adm]] as const) {
+    await as(actor, async (q) => {
+      ok(`opened: ${name} cannot select the column`, await rejects(q, `select opened from campaign_recipients`));
+      ok(`opened: ${name} cannot use select *`, await rejects(q, `select * from campaign_recipients`));
+      ok(`opened: ${name} cannot filter on it`, await rejects(q, `select count(*) from campaign_recipients where opened`));
+      ok(`opened: ${name} cannot write it`, await rejects(q, `update campaign_recipients set opened=true`));
+    });
+  }
+  for (const col of ["archive_visible", "archive_published_at", "slug"])
+    for (const priv of ["insert", "update"])
+      ok(`campaigns.${col}: authenticated has no ${priv} privilege`, await admin(async (c) => !(await c.query(`select has_column_privilege('authenticated','public.campaigns',$1,$2) ok`, [col, priv])).rows[0].ok));
+  for (const priv of ["insert", "update", "delete"])
+    ok(`subscription_requests: authenticated has no ${priv} privilege`, await admin(async (c) => !(await c.query(`select has_table_privilege('authenticated','public.subscription_requests',$1) ok`, [priv])).rows[0].ok));
+  ok("opened: no select privilege on the column for authenticated", (await hasCol(A, "campaign_recipients", "opened")) === false);
+  ok("opened: other columns remain readable", (await hasCol(A, "campaign_recipients", "status")) === true);
+  await as(A, async (q) => {
+    ok("archive: sender cannot publish a campaign", await rejects(q, `update campaigns set archive_visible=true where id=$1`, [ids.draftA]));
+    ok("archive: sender cannot set a slug", await rejects(q, `update campaigns set slug='x' where id=$1`, [ids.draftA]));
+    ok("archive: sender cannot insert archive fields", await rejects(q, `insert into campaigns (tenant_id,subject,created_by,archive_visible) values ($1,'x',$2,true)`, [ids.alfa, USERS.senderAlfa]));
+    ok("subscription_requests: sender sees confirmed ones", (await count(q, `select count(*) n from subscription_requests where status in ('pending_approval','approved')`)) === 2);
+    ok("subscription_requests: unconfirmed are hidden from staff", (await count(q, `select count(*) n from subscription_requests where status='pending_confirmation'`)) === 0);
+    ok("subscription_requests: no direct insert", await rejects(q, `insert into subscription_requests (tenant_id,email,token_hash) values ($1,'x@example.com',$2)`, [ids.alfa, "a".repeat(64)]));
+    ok("subscription_requests: no direct approve", await rejects(q, `update subscription_requests set status='approved'`));
+    ok("subscription_requests: no direct delete", await rejects(q, `delete from subscription_requests`));
+    ok("subscribers: new columns are not writable directly", await rejects(q, `update subscribers set apartment='1' where id=$1`, [ids.subA]));
   });
 
   // ---- sending gate (TOTP) ----

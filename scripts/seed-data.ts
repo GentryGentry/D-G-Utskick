@@ -1,10 +1,11 @@
 // Fictional data only (example.com / example.org / .test). Deterministic.
+import { createHash } from "node:crypto";
 import type { ClientBase } from "pg";
 import { subscriberHash } from "../src/lib/suppression";
 
 export const FIRST_NAMES = ["Anna", "Bo", "Cecilia", "David", "Elin", "Fredrik", "Gunnel", "Hugo", "Ida", "Johan"];
 
-export type SeedUsers = { admin: string; senderAlfa: string; senderBeta: string; senderNone: string };
+export type SeedUsers = { admin: string; senderAlfa: string; senderBeta: string; senderNone: string; boardAlfa: string };
 
 export const TENANTS = {
   alfa: { name: "Brf Testgården Alfa", slug: "alfa", reply_to: "styrelsen@alfa.test", limit: 500, count: 120 },
@@ -20,8 +21,8 @@ export async function seedData(db: ClientBase, users: SeedUsers, masterKey: stri
       [t.name, t.slug, t.reply_to, t.limit]);
     ids[slug] = r.rows[0].id;
   }
-  await db.query(`insert into memberships values ($1,$2,'dg_admin'),($1,$3,'dg_admin'),($4,$2,'sender'),($5,$3,'sender')`,
-    [users.admin, ids.alfa, ids.beta, users.senderAlfa, users.senderBeta]);
+  await db.query(`insert into memberships values ($1,$2,'dg_admin'),($1,$3,'dg_admin'),($4,$2,'sender'),($5,$3,'sender'),($6,$2,'board_viewer')`,
+    [users.admin, ids.alfa, ids.beta, users.senderAlfa, users.senderBeta, users.boardAlfa]);
 
   for (const [slug, t] of Object.entries(TENANTS)) {
     const tid = ids[slug];
@@ -34,8 +35,10 @@ export async function seedData(db: ClientBase, users: SeedUsers, masterKey: stri
       // fixed status traps: 3 unsubscribed, 2 bounced, 1 complained
       const status = i <= 3 ? "unsubscribed" : i <= 5 ? "bounced" : i === 6 ? "complained" : "active";
       const email = `boende${String(i).padStart(3, "0")}@${slug}.example.com`;
-      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name,status,email_hash) values ($1,$2,$3,$4,$5) returning id`,
-        [tid, email, FIRST_NAMES[i % FIRST_NAMES.length], status, subscriberHash(masterKey, tid, email)])).rows[0].id);
+      // Apartments: two addresses per apartment for the first 100, none after that (so "missing apartment" can be tested later).
+      const apartment = i <= 100 ? String(1001 + Math.floor((i - 1) / 2)) : null;
+      subs.push((await db.query(`insert into subscribers (tenant_id,email,first_name,status,email_hash,apartment,source) values ($1,$2,$3,$4,$5,$6,'import') returning id`,
+        [tid, email, FIRST_NAMES[i % FIRST_NAMES.length], status, subscriberHash(masterKey, tid, email), apartment])).rows[0].id);
     }
     // same address in both tenants, plus-address, unicode domain
     for (const e of ["shared@example.com", "anna+post@example.com", "åsa@bostäder.example.org"]) {
@@ -60,6 +63,12 @@ export async function seedData(db: ClientBase, users: SeedUsers, masterKey: stri
     }
     await db.query(`insert into campaigns (tenant_id,subject,created_by) values ($1,$2,$3)`, [tid, `Utkast ${slug}`, sender]);
     await db.query(`insert into audit_log (tenant_id,user_id,action,target) values ($1,$2,'campaign.sent',$3)`, [tid, sender, sent]);
+    // Sign-up queue: one unconfirmed (hidden from staff), one waiting for approval, one approved.
+    const tok = (n: string) => createHash("sha256").update(`seed-token-${slug}-${n}`).digest("hex");
+    await db.query(`insert into subscription_requests (tenant_id,email,name,apartment,token_hash,status,confirmed_at) values
+      ($1,'ny-obekraftad@example.com','Obekräftad','2001',$2,'pending_confirmation',null),
+      ($1,'ny-vantar@example.com','Väntar','2002',$3,'pending_approval',now()),
+      ($1,'ny-godkand@example.com','Godkänd','2003',$4,'approved',now())`, [tid, tok("a"), tok("b"), tok("c")]);
     await db.query(`insert into provider_events (tenant_id,provider,raw_payload) values ($1,'console','{"fake":true}')`, [tid]);
   }
   return ids;

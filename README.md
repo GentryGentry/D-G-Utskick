@@ -2,7 +2,7 @@
 
 Utskickstjänst för bostadsrättsföreningar. Se `docs/BYGGINSTRUKTION.md` (hur), `docs/ARCHITECTURE.md` (design) och `docs/DECISIONS.md` (beslut).
 
-Status: milstolpe 1 klar och verifierad mot riktigt Supabase. Milstolpe 2 (adresslista) klar för granskning, ej verifierad mot riktigt Supabase.
+Status: se `docs/STATUS.md`.
 
 ## Kommandon
 ```bash
@@ -24,6 +24,6 @@ npm run build
 ## Milstolpe 2: kontroll mot Supabase
 1. `git pull` och `npm.cmd install`.
 2. Skapa huvudnyckeln och spara den i lösenordshanteraren: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Lägg den som `SUPPRESSION_HMAC_MASTER_KEY=` i `.env.local`.
-3. SQL Editor, en fråga i taget: `truncate public.tenants cascade;`, sedan innehållet i `0003_inactive_status.sql`, sedan `0004_subscriber_management.sql` (D-021).
-4. Seeda om (samma `$env:`-rader som förra gången, plus `$env:SUPPRESSION_HMAC_MASTER_KEY='…'` med **samma** värde som i `.env.local`). Seed städar själv bort de gamla testanvändarna.
+3. SQL Editor, en fråga i taget och i den här ordningen: `truncate public.tenants cascade;` (hoppa över om databasen är tom), sedan innehållet i `0003_inactive_status.sql`, `0004_subscriber_management.sql` (D-021), `0005_board_viewer_role.sql` och `0006_slutprodukt_datamodel.sql`. Alla fyra ska ge "Success".
+4. Seeda om (samma `$env:`-rader som förra gången, plus `$env:SUPPRESSION_HMAC_MASTER_KEY='…'` med **samma** värde som i `.env.local`). Seed städar själv bort de gamla testanvändarna och skapar nu fem (inklusive `board-alfa@example.com`, styrelsemedlem utan skrivrätt).
 5. `npm.cmd run dev` och följ testlistan som Claude ger.

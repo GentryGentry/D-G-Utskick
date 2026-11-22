@@ -62,7 +62,8 @@ describe("every policy matters", () => {
   it("neutralising any guard or helper function turns the suite red", async () => {
     const survivors: string[] = [];
     const targets: [string, string][] = [
-      ["private.assert_member(uuid)", "returns void language plpgsql as $$ begin end $$"],
+      ["private.assert_staff(uuid)", "returns void language plpgsql as $$ begin end $$"],
+      ["private.is_staff(uuid)", "returns boolean language sql as $$ select true $$"],
       ["private.assert_admin(uuid)", "returns void language plpgsql as $$ begin end $$"],
       ["private.is_member(uuid)", "returns boolean language sql as $$ select true $$"],
       ["private.has_role(uuid, public.member_role)", "returns boolean language sql as $$ select true $$"],
@@ -78,6 +79,22 @@ describe("every policy matters", () => {
       finally { await exec(oid); }
     }
     expect(survivors, "these guards could be removed unnoticed").toEqual([]);
+  });
+
+  it("exposing opened (per-person data) through the API turns the suite red", async () => {
+    await exec(`grant select (opened) on public.campaign_recipients to authenticated`);
+    try { expect((await runIsolationChecks()).length).toBeGreaterThan(0); }
+    finally { await exec(`revoke select (opened) on public.campaign_recipients from authenticated`); }
+  });
+
+  it("letting users write archive fields or sign-up requests turns the suite red", async () => {
+    for (const [grant, revoke] of [
+      [`grant update (archive_visible) on public.campaigns to authenticated`, `revoke update (archive_visible) on public.campaigns from authenticated`],
+      [`grant insert, update on public.subscription_requests to authenticated`, `revoke insert, update on public.subscription_requests from authenticated`],
+    ]) {
+      await exec(grant);
+      try { expect((await runIsolationChecks()).length, grant).toBeGreaterThan(0); } finally { await exec(revoke); }
+    }
   });
 
   it("granting direct write access on subscribers turns the suite red", async () => {

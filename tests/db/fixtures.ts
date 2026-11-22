@@ -3,6 +3,7 @@ export const USERS = {
   senderAlfa: "00000000-0000-4000-8000-000000000002",
   senderBeta: "00000000-0000-4000-8000-000000000003",
   senderNone: "00000000-0000-4000-8000-000000000004",
+  boardAlfa: "00000000-0000-4000-8000-000000000005",
 };
 
 export const MASTER_KEY = "test-master-key-0123456789abcdef0123456789abcdef";

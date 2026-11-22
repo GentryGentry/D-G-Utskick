@@ -77,4 +77,56 @@ Importen känner av semikolon, komma och tab, läser både UTF-8 och Windows-125
 ## D-021 Migrering 0004 kräver tom dev-databas
 Kolumnen `email_hash` är NOT NULL och kan inte fyllas i efterhand (nyckeln finns inte i databasen). Migreringen avbryter med instruktion om det finns rader. Gäller bara dev-databasen. Kör `truncate public.tenants cascade;` och seeda om.
 
+## D-022 `name` finns redan som `first_name` — AVVIKELSE
+SLUTPRODUKT säger "lägg till `name` på `subscribers`". Kolumnen `first_name` (max 100 tecken, inga radbrytningar) finns redan och rymmer ett fullständigt namn. En dubblett skulle ge två fält för samma sak. Jag lade därför **inte** till `name` utan tolkar `first_name` som "namn". `subscription_requests.name` följer specen, och vid godkännande kopieras det till `first_name`.
+Vill du hellre byta namn på kolumnen till `name` är det en liten migrering, men den rör M2-funktionerna, CSV-rubrikerna och seed. Jag väntade med det eftersom M2 inte är verifierat än.
+
+## D-023 `subscription_requests.confirmed_at` — TILLÄGG till specen
+Kolumnen finns inte i listan men behövs. Utan den skulle `subscribers.confirmed_at` bli tidpunkten då Carl godkände, inte tidpunkten då personen själv klickade på länken, och det är den senare som är beviset på samtycke. En konsistensregel i databasen kräver att `confirmed_at` är satt exakt när statusen inte längre är `pending_confirmation`.
+
+## D-024 `board_viewer` ärver ingenting — skrivrätt kräver nu "staff"
+Alla policyer och funktioner frågade "är medlem?". Hade jag bara lagt till rollen hade `board_viewer` därmed fått rätt att skapa och radera utkast, lägga till och ta bort adresser, exportera listan och mer. Nu finns `private.is_staff` (bara `sender` och `dg_admin`):
+- **Skrivning och läsning av adresser, taggar, spärrlista och anmälningskö** kräver staff.
+- **`board_viewer` får läsa:** föreningens namn, utskick (`campaigns`) och mottagarrader (`campaign_recipients`, utan `opened`). Det räcker för historik och statistik.
+- `can_send` kräver staff och TOTP. Funktionerna från M2 anropar `assert_staff`; `assert_member` är borttagen eftersom den inte längre används.
+- TOTP krävs även för `board_viewer` (D-011 gäller alla).
+- **Följd för F1:** "Visa vilka" visar adress, namn och lägenhet för personer som inte nåtts, men `board_viewer` får inte läsa `subscribers`. F1 måste därför bygga på en databasfunktion som returnerar just de raderna och inget annat.
+- Användare och roller skapas av D&G för hand i v1. Det finns ingen inbjudningsfunktion.
+Täcks av ett 20-tal nya kontroller i isoleringstestet, och mutationstestet fallerar om `is_staff` eller `assert_staff` försvagas.
+
+## D-025 `opened` kan inte läsas via API
+Det är persondata, så `select` på `campaign_recipients` är nu beviljat kolumn för kolumn och `opened` är utelämnad. Varken `select opened`, `select *` eller filtrering på kolumnen fungerar för inloggade användare, oavsett roll. Bara servern (servicenyckel eller databasfunktion) kan skriva och läsa den.
+**Var ärlig mot föreningen:** D&G med databasåtkomst (Supabase-konsolen) kan fortfarande se värdet per mottagare. "Aldrig per person i något gränssnitt, API eller export" gäller verktyget, inte oss som drift.
+
+## D-026 Arkivfält
+`archive_visible` kan bara vara sant om utskicket är `sent` och har `slug` och `archive_published_at` (konsistensregel i databasen). Användare kan inte skriva fälten alls; en funktion tillkommer med F3. `slug` är unik per förening. **Regel för M3:** `campaigns.html` och `text_body` ska innehålla enbart brödtexten. Sidfot och avanmälningslänk (som är unik per mottagare) läggs på när varje mejl renderas.
+
+## D-027 `subscription_requests`
+- Anmälningar som personen inte bekräftat är **dolda även för Carl**. Vem som helst kan skriva in någon annans adress i ett öppet formulär, och dessa adresser ska inte ligga och vänta i hans vy.
+- Högst en öppen anmälan per adress och förening (delvis unikt index). Efter avslag går det att anmäla sig igen.
+- Bara en SHA-256 av länktoken lagras. Ingen IP-adress, ingen webbläsaruppgift.
+- Ingen användare kan skriva i tabellen. Servern och senare databasfunktioner gör det.
+- **Gallring (M6):** obekräftade anmälningar raderas efter 48 timmar, avslagna efter 30 dagar.
+
+## D-028 Två migreringar, inte en
+SLUTPRODUKT säger "nästa migrering". En ny enumvärde (`board_viewer`) kan inte användas i samma transaktion som skapar det, så det ligger i `0005`. Resten ligger i `0006`. `0006` kräver att `0005` är körd först. `import_subscribers` sätter nu `source = 'import'`, och `add_subscriber` ger `'manual'` (standardvärdet). Det är datakorrekthet, inte en ny funktion.
+
+## D-029 SLUTPRODUKT ersätter delar av BYGGINSTRUKTION (bara för F2)
+Hård regel 6 ("Ingen spårning, inga öppningspixlar") och punkten "Öppnings- och klickstatistik" under "Utanför omfånget" i `BYGGINSTRUKTION.md` gäller inte längre för F2, och bara på villkoren i F2. Klickspårning är fortfarande utanför omfånget. Jag har inte ändrat `BYGGINSTRUKTION.md`.
+
+## Öppna frågor till Thomas (kräver svar innan respektive funktion byggs)
+**Q1. Gallring efter 90 dagar mot historiken.** F2 säger att mottagarrader gallras efter 90 dagar och att summorna sparas. Men F1 ("Visa vilka") och historiken i M4 bygger på mottagarraderna. Vi behöver sparade summor per utskick *innan* gallringen körs (en `campaign_stats`-tabell eller kolumner på `campaigns`), annars försvinner "nådde X av Y" för gamla utskick. Det finns inte i listan "Gör redan nu", så jag har inte byggt det. Föreslår att det byggs med F1. Bekräfta också att "Visa vilka" bara behöver fungera de första 90 dagarna.
+
+**Q2. F1: att siffrorna går ihop.** Dagens statusar (`queued`, `sending`, `sent`, `delivered`, `bounced`, `complained`, `failed`, `unknown`) räcker inte för "exakt en status". Det saknas `rejected` (avvisad av SES) och `skipped` (inte skickad på grund av avanmälan). Dessutom: *"Y" måste definieras som antalet rader som skapades när utskicket köades*, och personer som avregistrerat sig i mellantiden måste ha en rad med status `skipped`, annars går summan aldrig ihop. Sist: SES skickar inte alltid en slutlig händelse. Ett utskick som är `sent` utan leveransbesked efter ett par timmar måste visas som "oklart", inte som levererat eller misslyckat. Det är sannolikt det som förklarar Egrannars 164 + 5 av 176 (sju oförklarade). Lägger in statusarna i M4.
+
+**Q3. "Bara de som själva lagt in sin e-postadress får utskick".** M2 tillåter CSV-import (D&G) och manuell tilläggning (Carl). De adresserna har inte gått genom den nya dubbla bekräftelsen. Vad ska gälla vid utskick: (a) alla aktiva, som nu; (b) bara `confirmed_at is not null`; (c) aktiva med `source='form'` eller `source='import'` (importen är då en försäkran från Carl om att adresserna kommer från Egrannars egen anmälan)? Jag rekommenderar (c) och att importen kräver en kryssruta "Jag intygar att personerna själva har anmält sin adress". Svaret styr M4.
+
+**Q4. F2 juridik.** Föreningens skriftliga godkännande är inte mottagarnas samtycke. En öppningspixel läser av mottagarens utrustning, och en jurist bör bedöma den svenska tolkningen av ePrivacy (LEK) innan funktionen slås på hos en förening. Dessutom behövs en inställning per förening (`open_tracking_enabled` och ett godkännandedatum) som inte finns i listan "Gör redan nu". Jag bygger den med F2. Siffran visas som uppskattning, och jag föreslår att den helst visas som "minst X" (bilder blockeras ofta, Apple Mail laddar i förväg), annars blir den ibland för hög och ibland för låg.
+
+**Q5. F3 arkiv: vilken lösning?** Min lutning: **server till server med en skrivskyddad nyckel per förening**, där nyckeln bara kan hämta arkivet. Fördelar: hemsidan är alltid aktuell, ett utskick kan tas bort ur arkivet direkt, och inga adresser exponeras. Nackdel: hemsidans plattform måste kunna köra egen serverkod. Alternativet, att vi genererar en statisk sida, fungerar på vilken hemsida som helst men kräver att vi eller Thomas lägger in sidan vid varje nytt utskick. **Vilken plattform ligger hemsidan på?** Svaret avgör.
+
+**Q6. F4 anmälan.** (a) En person som avregistrerat sig och sedan anmäler sig igen med bekräftad länk: ska det vara tillåtet? Min rekommendation: ja för `unsubscribed` och `deleted` efter dubbel bekräftelse och Carls godkännande, aldrig för `bounced` eller `complained`. Idag blockerar spärrlistan. (b) Hastighetsbegränsning per IP utan att lagra IP-adress kräver en kortlivad lagring (minne eller Redis) som beror på valet av hosting (D-005). (c) Bekräftelsemejlet är det första riktiga mejlet systemet skickar. Det hamnar före M4 och kräver `EmailProvider` och SES-ansökan i förväg.
+
+**Q7. F5 lägenhetsnummer.** Fritext går att skriva fel ("1001", "lgh 1001", "1 001"). Vi normaliserar blanksteg och versaler, men inte format. Föreslår att Carl lägger in föreningens lägenhetslista (en rad per lägenhet) och att formulär och verktyg bara godtar nummer ur listan. Annars blir adresser omöjliga att rensa vid flytt, och det är hela poängen med F5.
+
 ## D-010 Tidsbudget: 40 timmar är snålt — se ARCHITECTURE.md §8

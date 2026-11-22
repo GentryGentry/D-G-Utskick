@@ -37,6 +37,14 @@ Enligt instruktionen, med dessa förfiningar:
 
 **RLS:** hjälpfunktion `is_member(tenant_id)` och `has_role(tenant_id, role)` (`SECURITY DEFINER`, fast `search_path`). Policy per kommando (SELECT/INSERT/UPDATE/DELETE) och tabell, aldrig `FOR ALL` med bara `USING`. `WITH CHECK` krävs så att man inte kan flytta en rad till annan tenant. `memberships` kan inte självskrivas av `sender`. Skickande kräver AAL2 i policy/RPC, inte bara i UI.
 
+### Tillägg efter mötet med Carl (se `SLUTPRODUKT.md`, D-022 till D-028)
+- `memberships.role`: `board_viewer` (läs historik och statistik, kan inte skicka eller ändra). Skrivrätt kräver `private.is_staff`.
+- `subscribers`: `apartment` (normaliserad: versaler, ett blanksteg), `source` (`import`/`form`/`manual`), `confirmed_at`. Namnet finns som `first_name`.
+- `campaigns`: `archive_visible`, `archive_published_at`, `slug`. Brödtext lagras utan sidfot och avanmälningslänk.
+- `campaign_recipients.opened`: boolean, aldrig läsbar via API.
+- `subscription_requests`: anmälningskö för formuläret (F4), dold för användare tills personen bekräftat.
+- **Byggs först efter besked från Thomas:** F1 leveransöversikt, F2 öppningsstatistik, F3 arkiv, F4 anmälan, F5 flytt. Öppna frågor Q1–Q7 i `DECISIONS.md`.
+
 ## 4. Flöden
 
 **Utskick:** utkast → förhandsgranska → bekräfta (antal, ämne, avsändare, tydlig handling) → RPC `queue_campaign` i *en transaktion*: kontrollerar roll+AAL2, dagsgräns (summa skickade+köade senaste 24 h per tenant), fryser innehåll, skapar `campaign_recipients` från aktiva prenumeranter minus suppressions → status `queued`. Dubbelklick → samma `idempotency_key` → samma kampanj.
@@ -62,6 +70,8 @@ Enligt instruktionen, med dessa förfiningar:
 | Header-injektion via ämne/namn | Falska rubriker | Avvisa CR/LF, använd SDK:ns strukturerade rubriker |
 | Kapat konto lägger tillbaka spärrad adress med påhittad hash | Spärrad person får mejl | Accepterad risk (D-016), kräver TOTP-konto med sändrätt. Åtgärdas med hashning i databasen (M6) |
 | Användare återaktiverar avregistrerad | Utskick utan samtycke | Status låst i databasen, bara active↔inactive (D-017), testat |
+| `board_viewer` får skrivrätt av misstag | Styrelsemedlem raderar adresser | Skrivrätt kräver `is_staff`; ett 20-tal kontroller och mutationstest (D-024) |
+| Öppningsstatus per person läcker via API | Persondata utan stöd | Kolumnnivårättighet, testad (D-025) |
 | Läckage i loggar | Brott mot regel 3 | Central `maskEmail()`, lint-regel mot `console.log` av objekt med e-post, test |
 | Servicenyckel läcker | Total åtkomst | Bara server-side, aldrig `NEXT_PUBLIC_`, hemlighetsskanning i CI |
 | Raderad person finns kvar i backup | Radering ej fullständig | Dokumentera backup-retention i `DRIFT.md`; PERSONUPPGIFTER.md anger fördröjning |
