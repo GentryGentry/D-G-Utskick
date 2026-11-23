@@ -26,4 +26,4 @@ Regel: bara `example.com` / `example.org` / `.test`. Inget som liknar verkliga p
 - Skript `scripts/seed.ts`, vägrar köra om `NODE_ENV=production` eller om databas-URL inte är lokal/dev-projekt. Idempotent: nollställer bara seed-tenanterna.
 
 ## CSV-fixturer (milstolpe 2)
-`tests/fixtures/import-alfa.csv` (UTF-8 med BOM, semikolon) och `import-alfa-excel-1252.csv` (samma innehåll som svensk Excel sparar det). 14 rader: 5 nya, 2 som finns, 2 spärrade, 1 dubblett i filen, 3 ogiltiga (rad 10, 11, 12), plusadress och unicode-domän. Förväntat resultat är låst av `tests/unit/fixtures.test.ts`.
+`tests/fixtures/import-alfa.csv` (UTF-8 med BOM, semikolon) och `import-alfa-excel-1252.csv` (samma innehåll som svensk Excel sparar det). 14 rader: 5 adresser som inte är seedens `boende`-adresser, 2 som finns som `boende`, 2 spärrade, 1 dubblett i filen, 3 ogiltiga (rad 10, 11, 12), plusadress och unicode-domän. Filens resultat är låst av `tests/unit/fixtures.test.ts`. **Mot en nyseedad Alfa visar förhandsgranskningen 4 nya, 3 finns, 2 spärrade**, eftersom `åsa@bostäder.example.org` redan finns i seeden. Det är låst av `tests/db/import-wrong-tenant.test.ts`.

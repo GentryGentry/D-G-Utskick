@@ -27,7 +27,9 @@ describe("importing the Alfa fixture", () => {
     const alfa = await tenant("alfa");
     await as(ADM, async (q) => {
       const r = (await q.query(`select public.import_subscribers($1,$2::jsonb) r`, [alfa, JSON.stringify(fixtureRows(alfa))])).rows[0].r;
-      expect(r.suppressed).toBe(2);
+      // åsa@bostäder.example.org is already in the seed, so the database sees 4 new and 3 existing.
+      // (The file alone has 5 "new"; docs/SEED-PLAN.md counts from the file, not from the database.)
+      expect(r).toMatchObject({ inserted: 4, existing: 3, suppressed: 2 });
       expect(await statusOf(q, alfa, "boende001@alfa.example.com")).toMatchObject({ status: "unsubscribed" });
       expect(await statusOf(q, alfa, "avregistrerad1@alfa.example.com")).toBeNull();
       expect(await statusOf(q, alfa, "avregistrerad2@alfa.example.com")).toBeNull();
