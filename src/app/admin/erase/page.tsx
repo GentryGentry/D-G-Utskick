@@ -10,8 +10,7 @@ export default async function ErasePage({ searchParams }: { searchParams: Promis
   return (
     <>
       <nav className="top"><Link href={`/admin?tenant=${current.id}`}>← Administration</Link></nav>
-      <h1>Radera en person helt</h1>
-      <p>Förening: <strong>{current.name}</strong></p>
+      <h1>Radera en person helt i {current.name}</h1>
       <p className="muted">Används när en person begär att bli raderad. Adressen tas bort ur listan, <strong>även spärrnoteringen</strong> om personen tidigare avregistrerat sig, och leverantörshändelser som innehåller adressen. Därefter kan adressen läggas till igen, så använd det bara på begäran. Händelsen loggas utan adress.</p>
       <EraseForm tenant={current.id} />
     </>

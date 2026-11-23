@@ -36,8 +36,8 @@ export default async function ListPage({ searchParams }: { searchParams: Promise
   return (
     <>
       <nav className="top"><Link href={`/app?${base}`}>← Start</Link></nav>
-      <h1>Adresslista</h1>
-      <p className="muted">{current.name}: {activeCount ?? 0} aktiva adresser, {count ?? 0} träffar i vyn.</p>
+      <h1>Adresslista: {current.name}</h1>
+      <p className="muted">{activeCount ?? 0} aktiva adresser, {count ?? 0} träffar i vyn.</p>
       {sp.msg && NOTICE[sp.msg] && <p className="notice" role="status">{NOTICE[sp.msg]}</p>}
       {sp.err && <p className="error" role="alert">{friendly(sp.err)}</p>}
 
