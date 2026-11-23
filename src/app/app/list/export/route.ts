@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { canManage, loadContext } from "@/lib/tenant";
+import { canManage, loadContext, termsPending } from "@/lib/tenant";
 import { toCsv } from "@/lib/csv";
 
 export async function GET(req: NextRequest) {
@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   if (!user || aal?.currentLevel !== "aal2") return new NextResponse("Unauthorized", { status: 401 });
   const { current } = await loadContext(supabase, user.id, req.nextUrl.searchParams.get("tenant") ?? undefined);
   if (!current || !canManage(current.role)) return new NextResponse("Forbidden", { status: 403 });
+  if (await termsPending(supabase, current)) return NextResponse.redirect(new URL(`/app/villkor?tenant=${current.id}`, req.url));
 
   const subs: any[] = [];
   for (let from = 0; ; from += 1000) {

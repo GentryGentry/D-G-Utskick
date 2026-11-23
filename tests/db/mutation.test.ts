@@ -68,6 +68,8 @@ describe("every policy matters", () => {
       ["private.is_member(uuid)", "returns boolean language sql as $$ select true $$"],
       ["private.has_role(uuid, public.member_role)", "returns boolean language sql as $$ select true $$"],
       ["private.is_aal2()", "returns boolean language sql as $$ select true $$"],
+      ["private.assert_terms(uuid)", "returns void language plpgsql as $$ begin end $$"],
+      ["private.terms_ok(uuid)", "returns boolean language sql as $$ select true $$"],
     ];
     for (const [sig, body] of targets) {
       const oid = await admin(async (c) => (await c.query(`select pg_get_functiondef('${sig}'::regprocedure) d`)).rows[0].d as string);

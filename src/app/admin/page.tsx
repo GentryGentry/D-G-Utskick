@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireFullAuth } from "@/lib/auth";
 import { loadContext } from "@/lib/tenant";
+import { adminTenantsOf } from "@/lib/roles";
 import { chooseAdminTenant } from "@/lib/import-guard";
 import { redirect } from "next/navigation";
 
@@ -9,7 +10,7 @@ export default async function AdminHome({ searchParams }: { searchParams: Promis
   const { supabase, user } = await requireFullAuth();
   const { tenants, current, isAdmin } = await loadContext(supabase, user.id, tenant);
   if (!isAdmin || !current) redirect("/app");
-  const admins = tenants.filter((t) => t.role === "dg_admin");
+  const admins = adminTenantsOf(tenants);
   const cur = chooseAdminTenant(admins, tenant);
   if (!cur) return (
     <>

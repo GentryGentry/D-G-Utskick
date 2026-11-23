@@ -27,3 +27,8 @@ npm run build
 3. SQL Editor, en fråga i taget och i den här ordningen: `truncate public.tenants cascade;` (hoppa över om databasen är tom), sedan innehållet i `0003_inactive_status.sql`, `0004_subscriber_management.sql` (D-021), `0005_board_viewer_role.sql` och `0006_slutprodukt_datamodel.sql`. Alla fyra ska ge "Success".
 4. Seeda om (samma `$env:`-rader som förra gången, plus `$env:SUPPRESSION_HMAC_MASTER_KEY='…'` med **samma** värde som i `.env.local`). Seed städar själv bort de gamla testanvändarna och skapar nu fem (inklusive `board-alfa@example.com`, styrelsemedlem utan skrivrätt).
 5. `npm.cmd run dev` och följ testlistan som Claude ger.
+
+## Villkor för utskickare (D-031): kontroll mot Supabase
+1. `git pull` och `npm.cmd install` i `Dokument\D-G-Utskick`.
+2. Supabase → SQL Editor → New query. Klistra in hela innehållet i `Dokument\D-G-Utskick\supabase\migrations\0007_sender_terms.sql` och tryck Run. Ska ge "Success. No rows returned". Ingen omseedning behövs.
+3. `npm.cmd run dev`, logga in som `sender-alfa@example.com`, välj Brf Testgården Alfa, klicka Adresslista: villkoret ska visas. Godkänn, listan ska fungera som förut. Logga in som admin: inget villkor.
