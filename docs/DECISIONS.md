@@ -118,6 +118,32 @@ Hård regel 6 ("Ingen spårning, inga öppningspixlar") och punkten "Öppnings- 
 Manuellt test 11 (23 nov) importerade Alfa-filen till **Beta**, eftersom adminsidorna tyst valde den första föreningen i bokstavsordning ("Brf Provbacken Beta"). Databasen gjorde rätt: Beta har inga spärrar för Alfas boende, så de blev nya aktiva adresser i Beta. Alfa rördes inte. Felet är alltså inte spärrlistan utan att fel förening kunde väljas utan att någon märkte det. I verkligheten skulle det betyda att boende i en förening får utskick från en annan.
 Åtgärd (`src/lib/import-guard.ts`): en admin med flera föreningar måste välja förening uttryckligen, föreningens namn står i rubrik och knapp, importen kräver en kryssruta "filen hör till X" som också kontrolleras på servern, och förhandsgranskningen varnar om filens adresser hellre känns igen i en annan förening som admin har. Varningen jämför bara antal, aldrig adresser. `tests/db/import-wrong-tenant.test.ts` låser fast vad databasen gör i båda fallen.
 
+## D-031 Carl blir utskickare, med ett villkor han godkänner (beslut: D&G, 23 nov)
+**Roller i Brf Testgården Alfa när verktyget går live:**
+- **Carl (ordförande) → `sender` (utskickare).** Ser, lägger till, ändrar, avaktiverar och tar bort adresser i sin egen förening. Sköter senare utskicken.
+- **Övriga i styrelsen → `board_viewer`.** Får bara titta (D-024). Om de ska se *antalet* adresser är inte avgjort; D&G stämmer av med Carl. Inget är byggt för det.
+- **D&G → `dg_admin`.** Massimport (D-019) och "radera helt" (D-018) stannar hos D&G. Carl skickar filen till D&G i stället för att importera själv, eftersom det var där det gick fel i test 11 (D-030).
+- Inget riktigt konto för Carl skapas förrän verktyget går live.
+
+**Varför ett villkor.** När Carl får lägga in adresser själv flyttar ansvaret för *varifrån* adresserna kommer till honom, men det är D&G:s verktyg som skickar. Ett villkor på en mening som han godkänner är billigt och ger D&G ett bevis.
+
+**Hur det fungerar (migrering `0007_sender_terms.sql`):**
+- Texten ligger i `sender_terms`, en rad per version. Version 1: *"Jag lägger bara in e-postadresser som den boende själv har lämnat till föreningen för att få föreningens utskick. Jag lägger inte in adresser från andra listor eller register, och inte grannars adresser som de inte själva har lämnat."*
+- Godkännandet sparas i `terms_acceptances`: vem (`user_id`), vilken förening, vilken version, när. Plus en rad i `audit_log` (`terms.accepted`, `v1`).
+- **Båda tabellerna går inte att ändra eller radera i, inte ens för tabellägaren** (samma spärr som `audit_log`). En ny formulering läggs in som en ny version, aldrig genom att ändra den gamla. Annars går det inte att visa vad någon faktiskt godkände.
+- `user_id` har ingen koppling till kontotabellen, med avsikt: beviset ska finnas kvar även om kontot raderas.
+- API:t kommer inte åt tabellerna alls. Allt går via `sender_terms_status` och `accept_sender_terms`. Godkännande kräver tvåstegsinloggning och att versionen är den som visades. Ändrades texten medan sidan var öppen räknas klicket inte.
+- **Spärren ligger i databasen, inte bara på sidan.** `add_subscriber` och `update_subscriber` vägrar (`terms_not_accepted`) för en utskickare som inte godkänt aktuell version *för just den föreningen*. Avaktivera och ta bort är inte spärrade: de minskar bara vem som får mejl, och en klagande boende ska kunna tas bort direkt.
+- I appen skickas en utskickare till `/app/villkor` från adresslistan, redigeringssidan och exporten tills villkoret är godkänt. Om statusen inte går att läsa stoppas hen (stänger, inte öppnar).
+- `dg_admin` och `board_viewer` påverkas inte.
+- **Ny version:** kör i SQL Editor `insert into public.sender_terms (version, body) values (2, '...');`. Alla utskickare får godkänna igen vid nästa besök.
+- **Regel för M4:** sändningsfunktionen ska också anropa `private.assert_terms`.
+- **Känd följd:** precis som `audit_log` hindrar spärren att en förening raderas med vanlig `delete`. Hanteras i M6 tillsammans med `audit_log` (`dg.allow_audit_purge`).
+
+Täcks av isoleringstestet (utan godkännande: kan inte lägga till eller ändra; ny version spärrar igen; ingen direkt skrivning; fel version, fel förening, utan tvåsteg och styrelseroll nekas), `tests/db/sender-terms.test.ts` (sparar rätt, går inte att ändra) och `tests/unit/roles.test.ts`. Mutationstestet blir rött om `assert_terms` eller `terms_ok` försvagas.
+
+**Kontrollerat att utskickaren inte når import eller "radera helt":** sidorna och åtgärderna under `/admin` kräver `dg_admin` för just den valda föreningen (`requireAdminTenant`), och databasfunktionerna `import_preview`, `import_subscribers` och `erase_person` anropar `assert_admin`. Båda lagren är testade (isoleringstestet sedan M2, nu också `adminTenantsOf` i enhetstest).
+
 ## Öppna frågor till Thomas (kräver svar innan respektive funktion byggs)
 **Q1. Gallring efter 90 dagar mot historiken.** F2 säger att mottagarrader gallras efter 90 dagar och att summorna sparas. Men F1 ("Visa vilka") och historiken i M4 bygger på mottagarraderna. Vi behöver sparade summor per utskick *innan* gallringen körs (en `campaign_stats`-tabell eller kolumner på `campaigns`), annars försvinner "nådde X av Y" för gamla utskick. Det finns inte i listan "Gör redan nu", så jag har inte byggt det. Föreslår att det byggs med F1. Bekräfta också att "Visa vilka" bara behöver fungera de första 90 dagarna.
 

@@ -20,3 +20,5 @@ th, td { text-align:left; padding:.55rem .5rem; border-bottom:1px solid var(--li
 button.small { margin:0; padding:.3rem .7rem; font-size:.9rem; } button.danger { background:#b3261e; } button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
 details summary { cursor:pointer; color:var(--accent); } fieldset { border:1px solid var(--line); border-radius:6px; margin:1.2rem 0; }
 a { color: var(--accent); } nav.top { display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+blockquote.terms { margin: 1rem 0; padding: .9rem 1rem; border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 0 6px 6px 0; }
+label.check { display:flex; gap:.6rem; align-items:flex-start; font-weight:600; } label.check input { width:auto; margin-top:.3rem; }

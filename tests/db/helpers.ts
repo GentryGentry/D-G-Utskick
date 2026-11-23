@@ -2,13 +2,16 @@ import pg from "pg";
 
 export const pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
 
-export type Actor = { sub?: string; aal?: "aal1" | "aal2"; role?: "authenticated" | "anon" };
+/** `setup` runs as the database owner inside the same (rolled-back) transaction, before switching role.
+ *  Used to put the database in a state for one check only, e.g. "this sender has not accepted the terms". */
+export type Actor = { sub?: string; aal?: "aal1" | "aal2"; role?: "authenticated" | "anon"; setup?: string };
 
 /** Run fn inside a transaction as the given API role/JWT. Always rolls back. */
 export async function as<T>(actor: Actor, fn: (q: pg.PoolClient) => Promise<T>): Promise<T> {
   const c = await pool.connect();
   try {
     await c.query("begin");
+    if (actor.setup) await c.query(actor.setup);
     await c.query(`set local role ${actor.role ?? "authenticated"}`);
     const claims = actor.sub ? { sub: actor.sub, aal: actor.aal ?? "aal1", role: actor.role ?? "authenticated" } : {};
     await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);

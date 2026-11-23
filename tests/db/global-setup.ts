@@ -16,5 +16,9 @@ export default async function setup() {
     for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.query(readFileSync(join(dir, f), "utf8"));
     for (const [k, id] of Object.entries(USERS)) await db.query(`insert into auth.users (id,email) values ($1,$2)`, [id, `${k}@example.com`]);
     await seedData(db, USERS, MASTER_KEY);
+    // Test-only: both senders have accepted the current terms, so the existing suites test the list itself.
+    // The seed deliberately does NOT do this, so the terms page shows up in a manual test (D-031).
+    await db.query(`insert into terms_acceptances (user_id, tenant_id, terms_version)
+                    select m.user_id, m.tenant_id, (select max(version) from sender_terms) from memberships m where m.role = 'sender'`);
   } finally { await db.end(); }
 }

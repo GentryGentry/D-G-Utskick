@@ -203,6 +203,39 @@ export async function runIsolationChecks(): Promise<string[]> {
     ok("subscribers: new columns are not writable directly", await rejects(q, `update subscribers set apartment='1' where id=$1`, [ids.subA]));
   });
 
+  // ---- sender terms (D-031): no list writes before the current terms are accepted ----
+  const noTerms = { ...A, setup: `set local dg.allow_audit_purge = 'on'; delete from terms_acceptances where user_id = '${USERS.senderAlfa}'` };
+  const newVersion = `insert into sender_terms (version, body) values ((select max(version)+1 from sender_terms), 'Ny formulering av villkoret.')`;
+  const hT = subscriberHash(MASTER_KEY, ids.alfa, "terms-probe@example.com");
+  await as(noTerms, async (q) => {
+    ok("terms: sender without acceptance cannot add_subscriber", await rejects(q, `select public.add_subscriber($1,'terms-probe@example.com','x',$2)`, [ids.alfa, hT]));
+    ok("terms: sender without acceptance cannot update_subscriber", await rejects(q, `select public.update_subscriber($1,'x','terms-probe@example.com',$2)`, [ids.subA, hT]));
+    ok("terms: status says acceptance is needed", (await q.query(`select public.sender_terms_status($1) s`, [ids.alfa])).rows[0].s.needs_acceptance === true);
+    ok("terms: sender cannot write an acceptance directly", await rejects(q, `insert into terms_acceptances (user_id,tenant_id,terms_version) values ($1,$2,1)`, [USERS.senderAlfa, ids.alfa]));
+    ok("terms: sender cannot accept for beta", await rejects(q, `select public.accept_sender_terms($1,(select 1))`, [ids.beta]));
+    ok("terms: sender cannot accept an old version", await rejects(q, `select public.accept_sender_terms($1,0)`, [ids.alfa]));
+    ok("terms: sender can accept the current version", !(await rejects(q, `select public.accept_sender_terms($1,(public.sender_terms_status($1)->>'version')::int)`, [ids.alfa])));
+    ok("terms: after accepting, sender can add", !(await rejects(q, `select public.add_subscriber($1,'terms-probe@example.com','x',$2)`, [ids.alfa, hT])));
+  });
+  await as({ ...A, setup: newVersion }, async (q) => {
+    ok("terms: a new version blocks an old acceptance", await rejects(q, `select public.add_subscriber($1,'terms-probe@example.com','x',$2)`, [ids.alfa, hT]));
+    ok("terms: new version shows as needed", (await q.query(`select public.sender_terms_status($1) s`, [ids.alfa])).rows[0].s.needs_acceptance === true);
+  });
+  await as({ sub: USERS.senderAlfa, aal: "aal1", setup: noTerms.setup }, async (q) =>
+    ok("terms: cannot accept without two-step login", await rejects(q, `select public.accept_sender_terms($1,1)`, [ids.alfa])));
+  await as({ ...Adm, setup: `set local dg.allow_audit_purge = 'on'; delete from terms_acceptances; ${newVersion}` }, async (q) => {
+    ok("terms: admin is never asked", (await q.query(`select public.sender_terms_status($1) s`, [ids.alfa])).rows[0].s.needs_acceptance === false);
+    ok("terms: admin can add without accepting", !(await rejects(q, `select public.add_subscriber($1,'terms-probe@example.com','x',$2)`, [ids.alfa, hT])));
+  });
+  await as(Board, async (q) => {
+    ok("terms: board is not asked (cannot write anyway)", (await q.query(`select public.sender_terms_status($1) s`, [ids.alfa])).rows[0].s.needs_acceptance === false);
+    ok("terms: board cannot accept", await rejects(q, `select public.accept_sender_terms($1,1)`, [ids.alfa]));
+  });
+  await as(None, async (q) => ok("terms: non-member gets no status", await rejects(q, `select public.sender_terms_status($1)`, [ids.alfa])));
+  for (const t of ["sender_terms", "terms_acceptances"])
+    for (const priv of ["select", "insert", "update", "delete"])
+      ok(`${t}: authenticated has no ${priv} privilege`, await admin(async (c) => !(await c.query(`select has_table_privilege('authenticated',$1,$2) ok`, [`public.${t}`, priv])).rows[0].ok));
+
   // ---- sending gate (TOTP) ----
   const canSend = async (actor: any, t: string) => as(actor, async (q) => (await q.query(`select private.can_send($1) ok`, [t])).rows[0].ok as boolean);
   ok("can_send: aal1 denied", (await canSend({ sub: USERS.senderAlfa, aal: "aal1" }, ids.alfa)) === false);

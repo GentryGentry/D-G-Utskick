@@ -1,4 +1,4 @@
-# Status: var vi är (uppdaterad 22 nov 2026)
+# Status: var vi är (uppdaterad 23 nov 2026)
 
 Läs den här filen först när arbetet återupptas. Den bygger på `BYGGINSTRUKTION.md` (hur), `SLUTPRODUKT.md` (vad kunden vill ha efter mötet med Carl), `ARCHITECTURE.md` och `DECISIONS.md` (alla beslut och öppna frågor).
 
@@ -12,7 +12,8 @@ Läs den här filen först när arbetet återupptas. Den bygger på `BYGGINSTRUK
 |---|---|
 | 0 Underlag | Klar, godkänd |
 | 1 Grund (schema, RLS, TOTP-inloggning, seed, isoleringstest) | Klar, godkänd, **verifierad mot riktigt Supabase** (åtta manuella tester) |
-| 2 Adresslista (lägg till/redigera/avaktivera/ta bort, taggar, CSV-import i adminvyn, export, "radera helt") | **Byggd och testad mot Postgres. Inte verifierad mot riktigt Supabase och inte godkänd av Thomas.** |
+| 2 Adresslista (lägg till/redigera/avaktivera/ta bort, taggar, CSV-import i adminvyn, export, "radera helt") | Klar, **godkänd 23 nov** efter manuella test 1–16 i riktigt Supabase |
+| Roller för Alfa + villkor för utskickare (D-031) | **Byggd (migrering 0007) och testad mot Postgres. Inte körd i Supabase.** Carl = utskickare, styrelsen = bara titta, D&G = admin |
 | "Gör redan nu" från SLUTPRODUKT (datamodell) | **Byggd (migrering 0005 och 0006) och testad mot Postgres. Inte körd i Supabase.** |
 | 3 Skriv och förhandsgranska | Ej påbörjad |
 | 4 Skicka och avanmäla | Ej påbörjad (väntar på beslut om hosting, D-005, och på Q2 och Q3) |
@@ -20,24 +21,23 @@ Läs den här filen först när arbetet återupptas. Den bygger på `BYGGINSTRUK
 | 6 Hårdgöring | Ej påbörjad |
 | F1–F5 (SLUTPRODUKT) | **Ej byggda, avsiktligt.** Thomas säger till när. Öppna frågor Q1–Q7 i `DECISIONS.md` |
 
-Tester: 37 enhetstester (`npm test`) och 57 databastester (`npm run test:db`, startar en lokal Postgres 16). Alla passerar. Databastesterna inkluderar mutationstester som försvagar varje policy och vakt och kräver att testsviten blir röd.
+Tester: 50 enhetstester (`npm test`) och 63 databastester (`npm run test:db`, startar en lokal Postgres 16). Alla passerar. Databastesterna inkluderar mutationstester som försvagar varje policy och vakt och kräver att testsviten blir röd.
 
-## Det som väntar på Thomas, i ordning
-1. **Kör migreringarna i Supabase** (SQL Editor, en fråga i taget): `truncate public.tenants cascade;` om det finns data, sedan `0003`, `0004`, `0005`, `0006` från `supabase/migrations/`. Detaljer i README under "Milstolpe 2".
-2. **Skapa `SUPPRESSION_HMAC_MASTER_KEY`** (Node-raden i README), lägg den i `.env.local` och i lösenordshanteraren. Använd samma värde när du seedar om.
-3. **Seeda om** (samma PowerShell-rader som tidigare plus nyckeln). Skapar nu fem testanvändare.
-4. **Gör testlistan för milstolpe 2** (15 punkter, se Claudes senaste rapport) och lägg till: logga in som `board-alfa@example.com` (ställ in TOTP): ska se föreningen men "Adresslista (inte för din roll)".
-5. **Svara på frågorna Q1–Q7** i `DECISIONS.md`, framför allt **Q3** (vem får ta emot utskick) och **Q5** (vilken plattform hemsidan ligger på) samt hosting (D-005).
-6. Skicka in **SES-ansökan** när Thomas är redo (kan göras parallellt, tar tid).
+## Det som väntar på D&G, i ordning
+1. **Kör migrering `0007_sender_terms.sql`** i Supabase (SQL Editor → New query). Sedan manuellt test som `sender-alfa`: adresslistan ska först visa villkoret, efter "Godkänn" ska listan fungera som förut. Admin ska inte se villkoret.
+2. **Stäm av med Carl:** ska styrelserollen se antalet adresser? Idag ser den ingenting av listan. Inget byggs innan det är avgjort.
+3. **Svara på frågorna Q1–Q7** i `DECISIONS.md`, framför allt **Q3** (vem får ta emot utskick) och **Q5** (vilken plattform hemsidan ligger på) samt hosting (D-005).
+4. Skicka in **SES-ansökan** när D&G är redo (kan göras parallellt, tar tid).
+5. Skapa Carls riktiga konto (roll `sender`) först när verktyget går live (D-031).
 
 ## Nästa steg för Claude när Thomas har godkänt M2
 Milstolpe 3 (skriv och förhandsgranska). **Regel:** brödtexten lagras utan sidfot och avanmälningslänk (D-026). Därefter M4 med de nya statusarna enligt Q2. F1–F5 byggs först när Thomas säger till, i ordningen F1, F2 (efter F1), F4 (före M4), F3, F5.
 
 ## Fakta som är lätta att tappa bort
-- **Repo:** `GentryGentry/D-G-Utskick`, gren `claude/vibrant-carson-kku6ib`. Inga pull requests skapade.
+- **Repo:** `GentryGentry/D-G-Utskick`, gren `claude/vibrant-carson-kku6ib` (ingen `main`). Ändringar går via pull requests.
 - **Projektbriefen `CLAUDE.md` har aldrig funnits i repot.** Arkitekturen bygger enbart på byggfilerna (D-001).
 - **Stack:** Next.js 16 (`proxy.ts` i stället för `middleware.ts`), Supabase (dev-projektet "D&G Utskick", EU), TypeScript, Vitest. Inga riktiga mejl har skickats; alla adresser är påhittade (`example.com`, `.test`).
-- **Alla skrivningar till `subscribers` går via databasfunktioner** (D-017). Alla nya funktioner måste anropa `assert_staff` eller `assert_admin`.
+- **Alla skrivningar till `subscribers` går via databasfunktioner** (D-017). Alla nya funktioner måste anropa `assert_staff` eller `assert_admin`. Funktioner som lägger till adresser eller skickar ska också anropa `assert_terms` (D-031).
 - **Hashar:** `email_hash` = HMAC med nyckel härledd från `SUPPRESSION_HMAC_MASTER_KEY` (D-016). Nyckeln når aldrig databasen.
 - **Thomas kör Windows/PowerShell:** `npm.cmd` i stället för `npm`, och miljövariabler sätts med `$env:NAMN='värde'` (enkla citattecken). Nycklar och lösenord klistras aldrig in i chatten.
 - **Seed** vägrar köra utan `SEED_I_KNOW_THIS_IS_DEV=yes` och om databasen redan är seedad.
