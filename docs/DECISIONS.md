@@ -114,6 +114,10 @@ SLUTPRODUKT säger "nästa migrering". En ny enumvärde (`board_viewer`) kan int
 ## D-029 SLUTPRODUKT ersätter delar av BYGGINSTRUKTION (bara för F2)
 Hård regel 6 ("Ingen spårning, inga öppningspixlar") och punkten "Öppnings- och klickstatistik" under "Utanför omfånget" i `BYGGINSTRUKTION.md` gäller inte längre för F2, och bara på villkoren i F2. Klickspårning är fortfarande utanför omfånget. Jag har inte ändrat `BYGGINSTRUKTION.md`.
 
+## D-030 Adminsidor väljer aldrig förening åt dig
+Manuellt test 11 (23 nov) importerade Alfa-filen till **Beta**, eftersom adminsidorna tyst valde den första föreningen i bokstavsordning ("Brf Provbacken Beta"). Databasen gjorde rätt: Beta har inga spärrar för Alfas boende, så de blev nya aktiva adresser i Beta. Alfa rördes inte. Felet är alltså inte spärrlistan utan att fel förening kunde väljas utan att någon märkte det. I verkligheten skulle det betyda att boende i en förening får utskick från en annan.
+Åtgärd (`src/lib/import-guard.ts`): en admin med flera föreningar måste välja förening uttryckligen, föreningens namn står i rubrik och knapp, importen kräver en kryssruta "filen hör till X" som också kontrolleras på servern, och förhandsgranskningen varnar om filens adresser hellre känns igen i en annan förening som admin har. Varningen jämför bara antal, aldrig adresser. `tests/db/import-wrong-tenant.test.ts` låser fast vad databasen gör i båda fallen.
+
 ## Öppna frågor till Thomas (kräver svar innan respektive funktion byggs)
 **Q1. Gallring efter 90 dagar mot historiken.** F2 säger att mottagarrader gallras efter 90 dagar och att summorna sparas. Men F1 ("Visa vilka") och historiken i M4 bygger på mottagarraderna. Vi behöver sparade summor per utskick *innan* gallringen körs (en `campaign_stats`-tabell eller kolumner på `campaigns`), annars försvinner "nådde X av Y" för gamla utskick. Det finns inte i listan "Gör redan nu", så jag har inte byggt det. Föreslår att det byggs med F1. Bekräfta också att "Visa vilka" bara behöver fungera de första 90 dagarna.
 

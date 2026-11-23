@@ -10,10 +10,9 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <nav className="top"><Link href={`/admin?tenant=${current.id}`}>← Administration</Link></nav>
-      <h1>Importera adresser</h1>
-      <p>Förening: <strong>{current.name}</strong></p>
+      <h1>Importera adresser till {current.name}</h1>
       <p className="muted">CSV-fil med kolumnerna <code>email</code> (obligatorisk), <code>förnamn</code> och <code>taggar</code> (valfria). Semikolon eller komma fungerar. Du får en förhandsgranskning innan något sparas. Redan avregistrerade eller borttagna adresser läggs aldrig till igen, och befintliga adresser ändras inte.</p>
-      <ImportForm tenant={current.id} />
+      <ImportForm tenant={current.id} tenantName={current.name} />
     </>
   );
 }

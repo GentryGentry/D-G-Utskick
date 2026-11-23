@@ -2,12 +2,12 @@
 import { useActionState } from "react";
 import { commitImportAction, previewImportAction } from "../actions";
 
-export default function ImportForm({ tenant }: { tenant: string }) {
+export default function ImportForm({ tenant, tenantName }: { tenant: string; tenantName: string }) {
   const [preview, previewAction, previewing] = useActionState(previewImportAction, undefined);
   const [result, commitAction, committing] = useActionState(commitImportAction, undefined);
 
   if (result && "done" in result) return (
-    <p className="notice" role="status">Klart. {result.inserted} nya adresser lades till. {result.existing} fanns redan och lämnades orörda. {result.suppressed} hoppades över eftersom de tidigare avregistrerats eller tagits bort.</p>
+    <p className="notice" role="status">Klart i {tenantName}. {result.inserted} nya adresser lades till. {result.existing} fanns redan och lämnades orörda. {result.suppressed} hoppades över eftersom de tidigare avregistrerats eller tagits bort.</p>
   );
   return (
     <>
@@ -20,7 +20,8 @@ export default function ImportForm({ tenant }: { tenant: string }) {
       {preview && "error" in preview && <p className="error" role="alert">{preview.error}</p>}
       {preview && "ok" in preview && (
         <>
-          <h2>Förhandsgranskning</h2>
+          <h2>Förhandsgranskning för {tenantName}</h2>
+          {preview.warning && <p className="error" role="alert"><strong>Varning.</strong> {preview.warning}</p>}
           <table><tbody>
             <tr><td>Nya adresser som läggs till</td><td><strong>{preview.counts.fresh}</strong></td></tr>
             <tr><td>Finns redan (lämnas orörda, taggar läggs till)</td><td>{preview.counts.existing}</td></tr>
@@ -31,7 +32,8 @@ export default function ImportForm({ tenant }: { tenant: string }) {
           <form action={commitAction}>
             <input type="hidden" name="tenant" value={preview.tenant} />
             <input type="hidden" name="rows" value={preview.rowsJson} />
-            <button type="submit" disabled={committing || preview.counts.fresh + preview.counts.existing === 0}>{committing ? "Importerar…" : `Importera ${preview.counts.fresh} adresser`}</button>
+            <label className="row"><input type="checkbox" name="confirm_tenant" value={preview.tenant} required style={{ width: "auto" }} /> Ja, filen hör till <strong>{tenantName}</strong></label>
+            <button type="submit" disabled={committing || preview.counts.fresh + preview.counts.existing === 0}>{committing ? "Importerar…" : `Importera ${preview.counts.fresh} adresser till ${tenantName}`}</button>
             {result && "error" in result && <p className="error" role="alert">{result.error}</p>}
           </form>
         </>

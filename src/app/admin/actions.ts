@@ -6,11 +6,12 @@ import { decodeCsvBytes, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, parseSubscriberCsv, 
 import { isValidEmail, normalizeEmail } from "@/lib/email";
 import { requireEnv } from "@/lib/env";
 import { subscriberHash } from "@/lib/suppression";
+import { wrongTenantWarning } from "@/lib/import-guard";
 
 export type PreviewState =
   | undefined
   | { error: string }
-  | { ok: true; tenant: string; counts: { fresh: number; existing: number; suppressed: number; invalid: number; duplicatesInFile: number }; invalidSample: number[]; rowsJson: string };
+  | { ok: true; tenant: string; counts: { fresh: number; existing: number; suppressed: number; invalid: number; duplicatesInFile: number }; invalidSample: number[]; rowsJson: string; warning: string | null };
 export type CommitState = undefined | { error: string } | { done: true; inserted: number; existing: number; suppressed: number };
 export type EraseState = undefined | { error: string } | { done: true; subscribers: number; suppressions: number; events: number };
 
@@ -21,7 +22,7 @@ const CSV_ERRORS: Record<string, string> = {
 
 export async function previewImportAction(_prev: PreviewState, form: FormData): Promise<PreviewState> {
   const { supabase, user } = await requireFullAuth();
-  const { current } = await requireAdminTenant(supabase, user.id, String(form.get("tenant") ?? ""));
+  const { current, admins } = await requireAdminTenant(supabase, user.id, String(form.get("tenant") ?? ""));
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) return { error: "Välj en CSV-fil." };
   if (file.size > MAX_IMPORT_BYTES) return { error: "Filen är för stor (högst 1 MB)." };
@@ -37,17 +38,29 @@ export async function previewImportAction(_prev: PreviewState, form: FormData): 
   for (const r of (data ?? []) as { h: string; kind: string }[]) if (kind.get(r.h) !== "suppressed") kind.set(r.h, r.kind);  // suppression wins
   let existing = 0, suppressed = 0;
   for (const h of hashes) { const k = kind.get(h); if (k === "suppressed") suppressed++; else if (k === "existing") existing++; }
+
+  // Does the file look like it belongs to another association this admin manages? Hashes are per
+  // association, so each one is checked with its own key. Only counts come back, never addresses.
+  const others = [];
+  for (const t of admins.filter((a) => a.id !== current.id)) {
+    const hs = rows.map((r) => subscriberHash(master, t.id, r.email));
+    const { data: d } = hs.length ? await supabase.rpc("import_preview", { p_tenant: t.id, p_hashes: hs }) : { data: [] };
+    others.push({ name: t.name, matches: new Set(((d ?? []) as { h: string }[]).map((x) => x.h)).size });
+  }
+  const warning = wrongTenantWarning({ name: current.name, matches: existing + suppressed }, others);
   return {
     ok: true, tenant: current.id,
     counts: { fresh: rows.length - existing - suppressed, existing, suppressed, invalid: invalid.length, duplicatesInFile },
     invalidSample: invalid.slice(0, 10).map((i) => i.line),
-    rowsJson: JSON.stringify(rows),
+    rowsJson: JSON.stringify(rows), warning,
   };
 }
 
 export async function commitImportAction(_prev: CommitState, form: FormData): Promise<CommitState> {
   const { supabase, user } = await requireFullAuth();
   const { current } = await requireAdminTenant(supabase, user.id, String(form.get("tenant") ?? ""));
+  // The admin must tick "this file belongs to <association>". Checked here too, not just in the browser.
+  if (String(form.get("confirm_tenant") ?? "") !== current.id) return { error: `Bekräfta att filen hör till ${current.name} innan du importerar.` };
   let raw: unknown;
   try { raw = JSON.parse(String(form.get("rows") ?? "[]")); } catch { return { error: "Förhandsgranskningen kunde inte läsas. Börja om." }; }
   if (!Array.isArray(raw) || raw.length > MAX_IMPORT_ROWS) return { error: "Ogiltigt innehåll. Börja om." };

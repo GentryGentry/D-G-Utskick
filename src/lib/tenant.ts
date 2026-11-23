@@ -1,6 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { chooseAdminTenant } from "./import-guard";
 
 export type TenantRole = "dg_admin" | "sender" | "board_viewer";
 export const canManage = (role: TenantRole) => role === "dg_admin" || role === "sender";
@@ -24,8 +25,12 @@ export async function requireTenant(supabase: SupabaseClient, userId: string, re
   return { ...ctx, current: ctx.current };
 }
 
+/** Admin pages never fall back to "the first association": with several, the admin must choose (import-guard.ts). */
 export async function requireAdminTenant(supabase: SupabaseClient, userId: string, requested?: string) {
-  const ctx = await requireTenant(supabase, userId, requested);
-  if (ctx.current.role !== "dg_admin") redirect("/app");
-  return ctx;
+  const ctx = await loadContext(supabase, userId, requested);
+  const admins = ctx.tenants.filter((t) => t.role === "dg_admin");
+  if (!admins.length) redirect("/app");
+  const current = chooseAdminTenant(admins, requested);
+  if (!current) redirect("/admin");
+  return { ...ctx, admins, current };
 }
